@@ -16,6 +16,7 @@
 #include <linux/random.h>
 #include <linux/susfs.h>
 #include "mount.h"
+#include <uapi/linux/magic.h>
 
 static spinlock_t susfs_spin_lock;
 
