@@ -16,6 +16,7 @@
 #include <linux/random.h>
 #include <linux/susfs.h>
 #include "mount.h"
+#include <uapi/linux/magic.h>
 
 extern bool susfs_is_current_ksu_domain(void);
 
