@@ -323,19 +323,15 @@ struct km4_freq_cmdset km4_freq_cmdsets[HK3_FREQ_CMDSET_TYPE_MAX] = {
 static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, const u8 *cmd)
 {
 	// struct km4_panel *spanel = to_spanel(ctx);
-	struct gs_panel_status *sw_status = &ctx->sw_status;
+	// struct gs_panel_status *sw_status = &ctx->sw_status;
 	// struct gs_panel_status *hw_status = &ctx->hw_status;
-	unsigned long *feat = sw_status->feat;
+	// unsigned long *feat = sw_status->feat;
 	struct device *dev = ctx->dev;
 
 	if (need_unlock)
 		GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 
-	if (test_bit(FEAT_EARLY_EXIT, feat)) {
-		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0], cmd[1], cmd[2], cmd[3]);
-	} else {
-		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0] | 0x80, cmd[1], cmd[2], cmd[3]);
-	}
+	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0], cmd[1], cmd[2], cmd[3]);
 
 	if (need_unlock) {
 		GS_DCS_BUF_ADD_CMDLIST(dev, freq_update);
@@ -343,32 +339,39 @@ static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, con
 	}
 }
 
-static void km4_set_default_dimming(struct gs_panel *ctx, int need_unlock)
+static void km4_set_default_dimming(struct gs_panel *ctx, const unsigned long *feat, int need_unlock)
 {
 	// struct km4_panel *spanel = to_spanel(ctx);
-	struct gs_panel_status *sw_status = &ctx->sw_status;
-	unsigned long *feat = sw_status->feat;
+	// struct gs_panel_status *sw_status = &ctx->sw_status;
+	// unsigned long *feat = sw_status->feat;
 	static const u8 cmd[4] = {0x01, 0x83, 0x03, 0x03};
 	static const u8 hbm_cmd[4] = {0x00, 0x83, 0x03, 0x01};
+	u8 target_cmd[4];
 
 	if (test_bit(FEAT_HBM, feat))
-		km4_send_dimming_freq_cmd(ctx, need_unlock, hbm_cmd);
+		memcpy(target_cmd, hbm_cmd, 4);
 	else
-		km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
+		memcpy(target_cmd, cmd, 4);
+
+	if (!test_bit(FEAT_EARLY_EXIT, feat))
+		target_cmd[0] |= 0x80;
+
+	km4_send_dimming_freq_cmd(ctx, need_unlock, target_cmd);
 }
 
-static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
+static void km4_set_override_dimming(struct gs_panel *ctx, const unsigned long *feat, int need_unlock)
 {
 	struct km4_panel *spanel = to_spanel(ctx);
 	const struct gs_panel_mode *pmode = ctx->current_mode;
-	struct gs_panel_status *sw_status = &ctx->sw_status;
-	unsigned long *feat = sw_status->feat;
+	// struct gs_panel_status *sw_status = &ctx->sw_status;
+	// unsigned long *feat = sw_status->feat;
 	const int vrefresh = drm_mode_vrefresh(&pmode->mode);
 	bool is_hbm = test_bit(FEAT_HBM, feat);
 	bool is_ns_mode = test_bit(FEAT_OP_NS, feat);
 	bool is_sub120 = vrefresh < 120;
 	struct km4_freq_cmdset *cmdset;
 	u8 *cmd;
+	u8 target_cmd[4];
 
 	if (is_hbm)
 		cmdset = &km4_freq_cmdsets[HK3_FREQ_CMDSET_HBM];
@@ -379,6 +382,11 @@ static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
 		cmd = (is_ns_mode || is_sub120) ? cmdset->cmd_high_brightness_ns : cmdset->cmd_high_brightness;
 	else
 		cmd = (is_ns_mode || is_sub120) ? cmdset->cmd_ns : cmdset->cmd;
+
+	memcpy(target_cmd, cmd, 4);
+
+	if (!test_bit(FEAT_EARLY_EXIT, feat))
+		cmd[0] |= 0x80;
 
 	km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
 }
@@ -1197,9 +1205,9 @@ static void km4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 	 * Early-exit: enable or disable
 	 */
 	if (gs_is_panel_enabled(ctx))
-		km4_set_override_dimming(ctx, 0);
+		km4_set_override_dimming(ctx, feat, false);
 	else
-		km4_set_default_dimming(ctx, 0);
+		km4_set_default_dimming(ctx, feat, false);
 
 	/*
 	 * Manual FI: enable or disable manual mode FI
@@ -2001,6 +2009,8 @@ static int km4_enable(struct drm_panel *panel)
 {
 	struct gs_panel *ctx = container_of(panel, struct gs_panel, base);
 	struct device *dev = ctx->dev;
+	struct gs_panel_status *sw_status = &ctx->sw_status;
+	unsigned long *feat = sw_status->feat;
 	const struct gs_panel_mode *pmode = ctx->current_mode;
 	const struct drm_display_mode *mode;
 	const bool needs_reset = !gs_is_panel_enabled(ctx);
@@ -2067,7 +2077,7 @@ static int km4_enable(struct drm_panel *panel)
 			GS_DCS_WRITE_CMD(dev, MIPI_DCS_SET_DISPLAY_ON);
 		}
 
-		km4_set_override_dimming(ctx, true);
+		km4_set_override_dimming(ctx, feat, true);
 	}
 
 	PANEL_ATRACE_END(__func__);
@@ -2201,9 +2211,10 @@ static void km4_set_hbm_mode(struct gs_panel *ctx, enum gs_hbm_mode mode)
 {
 	const struct gs_panel_mode *pmode = ctx->current_mode;
 	struct gs_panel_status *sw_status = &ctx->sw_status;
+	unsigned long *feat = sw_status->feat;
 
 	if (!GS_IS_HBM_ON(mode))
-		km4_set_default_dimming(ctx, 1);
+		km4_set_default_dimming(ctx, feat, 1);
 
 	if (mode == ctx->hbm_mode)
 		return;
@@ -2232,7 +2243,7 @@ static void km4_set_hbm_mode(struct gs_panel *ctx, enum gs_hbm_mode mode)
 	}
 
 	if (!GS_IS_HBM_ON(mode)) {
-		km4_set_override_dimming(ctx, 1);
+		km4_set_override_dimming(ctx, feat, 1);
 	}
 }
 
