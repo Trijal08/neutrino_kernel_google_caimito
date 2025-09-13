@@ -246,6 +246,50 @@ static const struct gs_binned_lp km4_binned_lp[] = {
 			      KM4_TE2_FALLING_EDGE_OFFSET),
 };
 
+u8 freq_cmd[4] = {0x00, 0x43, 0x43, 0x03};
+module_param_array(freq_cmd, byte, NULL, 0644);
+
+static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, const u8 *cmd)
+{
+	// struct km4_panel *spanel = to_spanel(ctx);
+	struct gs_panel_status *sw_status = &ctx->sw_status;
+	// struct gs_panel_status *hw_status = &ctx->hw_status;
+	unsigned long *feat = sw_status->feat;
+	struct device *dev = ctx->dev;
+
+	if (need_unlock)
+		GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
+
+	if (test_bit(FEAT_EARLY_EXIT, feat)) {
+		if (test_bit(FEAT_HBM, feat))
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, 0x00, 0x83, 0x03, 0x01);
+		else
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0], cmd[1], cmd[2], cmd[3]);
+	} else {
+		if (test_bit(FEAT_HBM, feat))
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, 0x80, 0x83, 0x03, 0x01);
+		else
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0] | 0x80, cmd[1], cmd[2], cmd[3]);
+	}
+
+	if (need_unlock) {
+		GS_DCS_BUF_ADD_CMDLIST(dev, freq_update);
+		GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
+	}
+}
+
+static void km4_set_default_dimming(struct gs_panel *ctx, int need_unlock)
+{
+	static const u8 cmd[4] = {0x01, 0x83, 0x03, 0x03};
+
+	km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
+}
+
+static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
+{
+	km4_send_dimming_freq_cmd(ctx, need_unlock, freq_cmd);
+}
+
 static unsigned int km4_get_te_usec(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
 {
 	struct km4_panel *spanel = to_spanel(ctx);
@@ -721,6 +765,8 @@ static void km4_set_panel_feat_hbm_irc(struct gs_panel *ctx)
 }
 
 
+// Replaced in commit "panel: km4: change PWM frequency & pixel-on ratio"
+/*
 static void km4_set_panel_feat_early_exit(struct gs_panel *ctx, unsigned long *feat, u32 vrefresh)
 {
 	struct device *dev = ctx->dev;
@@ -737,6 +783,7 @@ static void km4_set_panel_feat_early_exit(struct gs_panel *ctx, unsigned long *f
 		GS_DCS_BUF_ADD_CMD(dev, 0xBD, val, val, val, val);
 	}
 }
+*/
 
 static void km4_set_panel_feat_tsp_sync(struct gs_panel *ctx) {
 	struct device *dev = ctx->dev;
@@ -1056,7 +1103,10 @@ static void km4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 	/*
 	 * Early-exit: enable or disable
 	 */
-	km4_set_panel_feat_early_exit(ctx, feat, vrefresh);
+	if (gs_is_panel_enabled(ctx))
+		km4_set_override_dimming(ctx, 0);
+	else
+		km4_set_default_dimming(ctx, 0);
 
 	/*
 	 * Manual FI: enable or disable manual mode FI
@@ -2053,6 +2103,9 @@ static void km4_set_hbm_mode(struct gs_panel *ctx, enum gs_hbm_mode mode)
 	const struct gs_panel_mode *pmode = ctx->current_mode;
 	struct gs_panel_status *sw_status = &ctx->sw_status;
 
+	if (!GS_IS_HBM_ON(mode))
+		km4_set_default_dimming(ctx, 1);
+
 	if (mode == ctx->hbm_mode)
 		return;
 
@@ -2077,6 +2130,10 @@ static void km4_set_hbm_mode(struct gs_panel *ctx, enum gs_hbm_mode mode)
 		sw_status->irc_mode = IRC_FLAT_DEFAULT;
 		km4_write_display_mode(ctx, &pmode->mode);
 		km4_update_panel_feat(ctx, false);
+	}
+
+	if (!GS_IS_HBM_ON(mode)) {
+		km4_set_override_dimming(ctx, 1);
 	}
 }
 
