@@ -215,6 +215,15 @@ static const struct drm_dsc_config fhd_pps_config = {
 #define COMP_TEMP_MAX 49
 #define COMP_TEMP_OFFSET -10
 
+/**
+ * When segmented dimming is enabled, brightness higher than this is treated as
+ * high brightness and uses freq_cmd_high_brightness for backlight control.
+ * Otherwise freq_cmd is used.
+ *
+ * This feature is not turned on by default, and the default value is not tuned.
+ */
+#define HK3_DIMMING_SWITCH_THRESHOLD_DEFAULT   600
+
 #define PROJECT "KM4"
 
 static const u8 unlock_cmd_f0[] = { 0xF0, 0x5A, 0x5A };
@@ -255,6 +264,9 @@ module_param(use_linear_matrix, int, 0644);
 
 int use_segmented_dimming = 0;
 module_param(use_segmented_dimming, int, 0644);
+
+int segmented_dimming_switch_threshold = HK3_DIMMING_SWITCH_THRESHOLD_DEFAULT;
+module_param(segmented_dimming_switch_threshold, int, 0644);
 
 u8 freq_cmd[4] = {0x00, 0x43, 0x43, 0x03};
 module_param_array(freq_cmd, byte, NULL, 0644);
@@ -363,7 +375,7 @@ static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
 	else
 		cmdset = &km4_freq_cmdsets[HK3_FREQ_CMDSET_NORMAL];
 
-	if (use_segmented_dimming && spanel->requested_brightness > DIMMING_SWITCH_THRESHOLD)
+	if (use_segmented_dimming && spanel->requested_brightness > segmented_dimming_switch_threshold)
 		cmd = (is_ns_mode || is_sub120) ? cmdset->cmd_high_brightness_ns : cmdset->cmd_high_brightness;
 	else
 		cmd = (is_ns_mode || is_sub120) ? cmdset->cmd_ns : cmdset->cmd;
