@@ -1204,7 +1204,7 @@ static void km4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 	/*
 	 * Early-exit: enable or disable
 	 */
-	if (gs_is_panel_enabled(ctx))
+	if (gs_is_panel_enabled(ctx) && !ctx->current_mode->gs_mode.is_lp_mode)
 		km4_set_override_dimming(ctx, feat, false);
 	else
 		km4_set_default_dimming(ctx, feat, false);
@@ -1901,15 +1901,22 @@ static void km4_enforce_manual_and_peak(struct gs_panel *ctx)
 static void km4_set_lp_mode(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
 {
 	struct device *dev = ctx->dev;
+	struct gs_panel_status *sw_status = &ctx->sw_status;
 	const u16 brightness = gs_panel_get_brightness(ctx);
+	unsigned long *feat = sw_status->feat;
 
 	dev_dbg(dev, "%s\n", __func__);
 
 	PANEL_ATRACE_BEGIN(__func__);
+
+	if (use_linear_matrix)
+		ea_panel_calc_backlight(0); /* turn off matrix */
+
 	/* enforce manual and peak to have a smooth transition */
 	km4_enforce_manual_and_peak(ctx);
 
 	km4_wait_for_vsync_done(ctx, ctx->current_mode);
+	km4_set_default_dimming(ctx, feat, true);
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 	GS_DCS_BUF_ADD_CMDLIST(dev, aod_on);
 	/* Fixed TE: sync on */
@@ -1944,6 +1951,8 @@ static void km4_set_lp_mode(struct gs_panel *ctx, const struct gs_panel_mode *pm
 static void km4_set_nolp_mode(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
 {
 	struct device *dev = ctx->dev;
+	struct gs_panel_status *sw_status = &ctx->sw_status;
+	unsigned long *feat = sw_status->feat;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -1968,6 +1977,7 @@ static void km4_set_nolp_mode(struct gs_panel *ctx, const struct gs_panel_mode *
 #endif
 	km4_set_panel_feat(ctx, pmode, true);
 	/* backlight control and dimming */
+	km4_set_override_dimming(ctx, feat, true);
 	km4_write_display_mode(ctx, &pmode->mode);
 	km4_change_frequency(ctx, pmode);
 
