@@ -15,6 +15,8 @@
 #include "gs_panel/gs_panel.h"
 #include "gs_panel/gs_panel_funcs_defaults.h"
 
+#include "exposure-adj.h"
+
 /**
  * struct km4_panel - panel specific info
  *
@@ -31,6 +33,8 @@ struct km4_panel {
 	bool force_changeable_te2;
 	/** @force_za_off: force to turn off zonal attenuation */
 	bool force_za_off;
+	/** @requested_brightness: requested brightness before exposure adjustment */
+	u16 requested_brightness;
 	/**
 	 * @is_pixel_off: pixel-off command is sent to panel. Only sending normal-on or resetting
 	 *		  panel can recover to normal mode after entering pixel-off state.
@@ -246,8 +250,17 @@ static const struct gs_binned_lp km4_binned_lp[] = {
 			      KM4_TE2_FALLING_EDGE_OFFSET),
 };
 
+int use_linear_matrix = 1;
+module_param(use_linear_matrix, int, 0644);
+
+int use_segmented_dimming = 0;
+module_param(use_segmented_dimming, int, 0644);
+
 u8 freq_cmd[4] = {0x00, 0x43, 0x43, 0x03};
 module_param_array(freq_cmd, byte, NULL, 0644);
+
+u8 freq_cmd_high_brightness[4] = {0x00, 0x43, 0x43, 0x03};
+module_param_array(freq_cmd_high_brightness, byte, NULL, 0644);
 
 static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, const u8 *cmd)
 {
@@ -287,7 +300,16 @@ static void km4_set_default_dimming(struct gs_panel *ctx, int need_unlock)
 
 static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
 {
-	km4_send_dimming_freq_cmd(ctx, need_unlock, freq_cmd);
+	struct km4_panel *spanel = to_spanel(ctx);
+	u8 *cmd;
+
+	if (use_segmented_dimming && spanel->requested_brightness > DIMMING_SWITCH_THRESHOLD) {
+		cmd = freq_cmd_high_brightness;
+	} else {
+		cmd = freq_cmd;
+	}
+
+	km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
 }
 
 static unsigned int km4_get_te_usec(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
@@ -1718,7 +1740,7 @@ static void km4_set_acl_mode(struct gs_panel *ctx, enum gs_acl_mode mode)
 static int km4_set_brightness(struct gs_panel *ctx, u16 br)
 {
 	int ret;
-	u16 brightness;
+	u16 brightness, orig_br;
 	struct km4_panel *spanel = to_spanel(ctx);
 	struct device *dev = ctx->dev;
 
@@ -1750,11 +1772,15 @@ static int km4_set_brightness(struct gs_panel *ctx, u16 br)
 		spanel->is_pixel_off = false;
 	}
 
+	orig_br = br;
+	if (use_linear_matrix)
+		br = ea_panel_calc_backlight(br);
 	brightness = (br & 0xff) << 8 | br >> 8;
 	km4_check_command_timing_for_te2(ctx);
 	ret = gs_dcs_set_brightness(ctx, brightness);
 	if (!ret) {
 		ctx->hw_status.dbv = br;
+		spanel->requested_brightness = orig_br;
 		km4_set_acl_mode(ctx, ctx->sw_status.acl_mode);
 	}
 
