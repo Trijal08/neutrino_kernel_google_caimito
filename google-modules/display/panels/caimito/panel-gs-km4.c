@@ -2066,6 +2066,8 @@ static int km4_enable(struct drm_panel *panel)
 		if (needs_reset || (ctx->panel_state == GPANEL_STATE_BLANK)) {
 			GS_DCS_WRITE_CMD(dev, MIPI_DCS_SET_DISPLAY_ON);
 		}
+
+		km4_set_override_dimming(ctx, true);
 	}
 
 	PANEL_ATRACE_END(__func__);
