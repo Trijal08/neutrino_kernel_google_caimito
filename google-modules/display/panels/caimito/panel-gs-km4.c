@@ -268,6 +268,46 @@ module_param_array(freq_cmd_high_brightness, byte, NULL, 0644);
 u8 freq_cmd_high_brightness_ns[4] = {0x00, 0x43, 0x43, 0x03};
 module_param_array(freq_cmd_high_brightness_ns, byte, NULL, 0644);
 
+u8 freq_cmd_hbm[4] = {0x00, 0x43, 0x43, 0x03};
+module_param_array(freq_cmd_hbm, byte, NULL, 0644);
+
+u8 freq_cmd_hbm_ns[4] = {0x00, 0x43, 0x43, 0x03};
+module_param_array(freq_cmd_hbm_ns, byte, NULL, 0644);
+
+u8 freq_cmd_hbm_high_brightness[4] = {0x00, 0x43, 0x43, 0x03};
+module_param_array(freq_cmd_hbm_high_brightness, byte, NULL, 0644);
+
+u8 freq_cmd_hbm_high_brightness_ns[4] = {0x00, 0x43, 0x43, 0x03};
+module_param_array(freq_cmd_hbm_high_brightness_ns, byte, NULL, 0644);
+
+struct km4_freq_cmdset {
+	u8 *cmd;
+	u8 *cmd_ns;
+	u8 *cmd_high_brightness;
+	u8 *cmd_high_brightness_ns;
+};
+
+enum km4_freq_cmdset_type {
+	HK3_FREQ_CMDSET_NORMAL,
+	HK3_FREQ_CMDSET_HBM,
+	HK3_FREQ_CMDSET_TYPE_MAX
+};
+
+struct km4_freq_cmdset km4_freq_cmdsets[HK3_FREQ_CMDSET_TYPE_MAX] = {
+	[HK3_FREQ_CMDSET_NORMAL] = {
+		.cmd = freq_cmd,
+		.cmd_ns = freq_cmd_ns,
+		.cmd_high_brightness = freq_cmd_high_brightness,
+		.cmd_high_brightness_ns = freq_cmd_high_brightness_ns,
+	},
+	[HK3_FREQ_CMDSET_HBM] = {
+		.cmd = freq_cmd_hbm,
+		.cmd_ns = freq_cmd_hbm_ns,
+		.cmd_high_brightness = freq_cmd_hbm_high_brightness,
+		.cmd_high_brightness_ns = freq_cmd_hbm_high_brightness_ns,
+	},
+};
+
 static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, const u8 *cmd)
 {
 	// struct km4_panel *spanel = to_spanel(ctx);
@@ -280,15 +320,9 @@ static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, con
 		GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 
 	if (test_bit(FEAT_EARLY_EXIT, feat)) {
-		if (test_bit(FEAT_HBM, feat))
-			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, 0x00, 0x83, 0x03, 0x01);
-		else
-			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0], cmd[1], cmd[2], cmd[3]);
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0], cmd[1], cmd[2], cmd[3]);
 	} else {
-		if (test_bit(FEAT_HBM, feat))
-			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, 0x80, 0x83, 0x03, 0x01);
-		else
-			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0] | 0x80, cmd[1], cmd[2], cmd[3]);
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, cmd[0] | 0x80, cmd[1], cmd[2], cmd[3]);
 	}
 
 	if (need_unlock) {
@@ -299,9 +333,16 @@ static void km4_send_dimming_freq_cmd(struct gs_panel *ctx, int need_unlock, con
 
 static void km4_set_default_dimming(struct gs_panel *ctx, int need_unlock)
 {
+	// struct km4_panel *spanel = to_spanel(ctx);
+	struct gs_panel_status *sw_status = &ctx->sw_status;
+	unsigned long *feat = sw_status->feat;
 	static const u8 cmd[4] = {0x01, 0x83, 0x03, 0x03};
+	static const u8 hbm_cmd[4] = {0x00, 0x83, 0x03, 0x01};
 
-	km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
+	if (test_bit(FEAT_HBM, feat))
+		km4_send_dimming_freq_cmd(ctx, need_unlock, hbm_cmd);
+	else
+		km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
 }
 
 static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
@@ -311,15 +352,21 @@ static void km4_set_override_dimming(struct gs_panel *ctx, int need_unlock)
 	struct gs_panel_status *sw_status = &ctx->sw_status;
 	unsigned long *feat = sw_status->feat;
 	const int vrefresh = drm_mode_vrefresh(&pmode->mode);
+	bool is_hbm = test_bit(FEAT_HBM, feat);
 	bool is_ns_mode = test_bit(FEAT_OP_NS, feat);
 	bool is_sub120 = vrefresh < 120;
+	struct km4_freq_cmdset *cmdset;
 	u8 *cmd;
 
-	if (use_segmented_dimming && spanel->requested_brightness > DIMMING_SWITCH_THRESHOLD) {
-		cmd = (is_ns_mode || is_sub120) ? freq_cmd_high_brightness_ns : freq_cmd_high_brightness;
-	} else {
-		cmd = (is_ns_mode || is_sub120) ? freq_cmd_ns : freq_cmd;
-	}
+	if (is_hbm)
+		cmdset = &km4_freq_cmdsets[HK3_FREQ_CMDSET_HBM];
+	else
+		cmdset = &km4_freq_cmdsets[HK3_FREQ_CMDSET_NORMAL];
+
+	if (use_segmented_dimming && spanel->requested_brightness > DIMMING_SWITCH_THRESHOLD)
+		cmd = (is_ns_mode || is_sub120) ? cmdset->cmd_high_brightness_ns : cmdset->cmd_high_brightness;
+	else
+		cmd = (is_ns_mode || is_sub120) ? cmdset->cmd_ns : cmdset->cmd;
 
 	km4_send_dimming_freq_cmd(ctx, need_unlock, cmd);
 }
