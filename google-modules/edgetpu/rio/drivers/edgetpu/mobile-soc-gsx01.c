@@ -424,13 +424,13 @@ static void gsx01_set_pm_qos(struct edgetpu_dev *etdev, u32 pm_qos_val)
 	exynos_pm_qos_update_request(&etdev->soc_data->mif_min, mif_val);
 }
 
-int edgetpu_soc_handle_reverse_kci(struct edgetpu_dev *etdev,
-				   struct gcip_kci_response_element *resp)
+void edgetpu_soc_handle_reverse_kci(struct edgetpu_dev *etdev,
+				    struct gcip_kci_response_element *resp)
 {
 	int ret;
 
 	switch (resp->code) {
-	case GCIP_RKCI_PM_QOS_BTS_REQUEST:
+	case RKCI_CODE_PM_QOS_BTS:
 		/* FW indicates to ignore the request by setting them to undefined values. */
 		if (resp->rkci_value2 != U32_MAX)
 			gsx01_set_pm_qos(etdev, resp->rkci_value2);
@@ -441,11 +441,9 @@ int edgetpu_soc_handle_reverse_kci(struct edgetpu_dev *etdev,
 			etdev_err(etdev, "failed to send rkci resp for %llu (%d)", resp->seq, ret);
 		break;
 	default:
-		ret = -EOPNOTSUPP;
+		etdev_warn(etdev, "Unrecognized KCI request: %u\n", resp->code);
 		break;
 	}
-
-	return ret;
 }
 
 static unsigned long edgetpu_pm_rate;
@@ -755,7 +753,10 @@ int edgetpu_soc_pm_lpm_up(struct edgetpu_dev *etdev)
 	return 0;
 }
 
-/* Log TPU block power state for debugging. The block is not required to be powered up. */
+/*
+ * Log TPU block power state for debugging.  The block is not required to be powered up for
+ * this function on this SoC family.
+ */
 void edgetpu_soc_pm_dump_block_state(struct edgetpu_dev *etdev)
 {
 	if (IS_ENABLED(CONFIG_EDGETPU_TEST))
@@ -868,6 +869,33 @@ void edgetpu_soc_set_tpu_cpu_security(struct edgetpu_dev *etdev)
 
 int edgetpu_soc_setup_irqs(struct edgetpu_dev *etdev)
 {
-	/* gsX01 platforms only support mailbox interrupts, which are setup by mailbox code. */
+	struct platform_device *pdev = to_platform_device(etdev->dev);
+	struct edgetpu_mobile_platform_dev *etmdev = to_mobile_dev(etdev);
+	int n = platform_irq_count(pdev);
+	int ret;
+	int i;
+
+	if (n < 0) {
+		dev_err(etdev->dev, "Error retrieving IRQ count: %d\n", n);
+		return n;
+	}
+
+	etmdev->mailbox_irq = devm_kmalloc_array(etdev->dev, n, sizeof(*etmdev->mailbox_irq),
+						 GFP_KERNEL);
+	if (!etmdev->mailbox_irq)
+		return -ENOMEM;
+
+	for (i = 0; i < n; i++) {
+		etmdev->mailbox_irq[i] = platform_get_irq(pdev, i);
+		ret = devm_request_irq(etdev->dev, etmdev->mailbox_irq[i],
+				       edgetpu_mailbox_irq_handler, IRQF_ONESHOT, etdev->dev_name,
+				       etdev);
+		if (ret) {
+			dev_err(etdev->dev, "%s: failed to request mailbox irq %d: %d\n",
+				etdev->dev_name, etmdev->mailbox_irq[i], ret);
+			return ret;
+		}
+	}
+	etmdev->n_mailbox_irq = n;
 	return 0;
 }

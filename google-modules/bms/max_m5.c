@@ -1612,11 +1612,36 @@ void *max_m5_init_data(struct device *dev, struct device_node *node,
 	return m5_data;
 }
 
+static bool max_m5_is_reg(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
+	case 0x00 ... 0x4F:
+	case 0xB0 ... 0xBF:
+	case 0xD0:		/* IIC */
+	case 0xDC ... 0xDF:
+	case 0xFB:
+	case 0xFF:		/* VFSOC */
+		return true;
+	case 0x60:		/* Model unlock */
+	case 0x62:		/* Unlock Model Access */
+	case 0x63:		/* Unlock Model Access */
+	case 0x80 ... 0xAF:	/* FG Model */
+		/* TODO: add a check on unlock */
+		return true;
+	case 0xEB:              /* CoTrim */
+		return true;
+	}
+
+	return false;
+}
+
 const struct regmap_config max_m5_regmap_cfg = {
 	.reg_bits = 8,
 	.val_bits = 16,
 	.val_format_endian = REGMAP_ENDIAN_NATIVE,
 	.max_register = MAX_M5_VFSOC,
+	.readable_reg = max_m5_is_reg,
+	.volatile_reg = max_m5_is_reg,
 };
 
 const struct maxfg_reg max_m5[] = {
@@ -1666,7 +1691,6 @@ const struct maxfg_reg max_m5[] = {
 	[MAXFG_TAG_status] = { ATOM_INIT_REG16(MAX_M5_STATUS)},
 	[MAXFG_TAG_fullsocthr] = { ATOM_INIT_REG16(MAX_M5_FULLSOCTHR)},
 	[MAXFG_TAG_misccfg] = { ATOM_INIT_REG16(MAX_M5_MISCCFG)},
-	[MAXFG_TAG_ichgterm] = { ATOM_INIT_REG16(MAX_M5_ICHGTERM)},
 };
 
 int max_m5_regmap_init(struct maxfg_regmap *regmap, struct i2c_client *clnt)

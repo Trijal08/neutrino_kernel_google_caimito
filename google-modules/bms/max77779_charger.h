@@ -102,8 +102,6 @@ struct max77779_chgr_data {
 	struct gvotable_election *msc_last_votable;
 	int chg_term_voltage;
 	int chg_term_volt_debounce;
-
-	bool msc_pwr_voter_active;
 };
 int max77779_charger_init(struct max77779_chgr_data *data);
 void max77779_charger_remove(struct max77779_chgr_data *data);

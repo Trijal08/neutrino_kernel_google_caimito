@@ -252,7 +252,8 @@ static int gxp_mcu_register_wdg_irq(struct gxp_dev *gxp)
 		return 0;
 	}
 	ret = devm_request_threaded_irq(dev, wdg_virq, mcu_wdg_irq_handler,
-					mcu_wdg_threaded_handler, /*flags=*/0, "gxp_aurora_mcu_wdg",
+					mcu_wdg_threaded_handler,
+					/*flags=*/0, "aurora_mcu_wdg",
 					(void *)gxp);
 	if (ret)
 		dev_err(dev, "Unable to register MCU WDG IRQ: %d\n", ret);

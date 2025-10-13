@@ -94,9 +94,8 @@ DECLARE_STATIC_KEY_FALSE(auto_dvfs_headroom_enable);
 
 unsigned long approximate_util_avg(unsigned long util, u64 delta);
 u64 approximate_runtime(unsigned long util);
-inline void __reset_task_affinity(struct task_struct *p, const struct cpumask *in_mask);
+inline void __reset_task_affinity(struct task_struct *p);
 bool should_boost_at_fork(struct task_struct *p);
-bool is_vcpu_task(struct task_struct *p);
 
 #define cpu_overutilized(cap, max, cpu)	\
 		((cap) * sched_capacity_margin[cpu] > (max) << SCHED_CAPACITY_SHIFT)
@@ -217,7 +216,6 @@ struct vendor_group_property {
 	bool qos_rampup_multiplier_enable;
 
 	bool disable_sched_setaffinity;
-	bool disable_sched_setaffinity_mask;
 	bool use_batch_policy;
 };
 

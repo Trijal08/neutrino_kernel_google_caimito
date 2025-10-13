@@ -38,6 +38,7 @@
 #include <hnd_cons.h>
 #endif
 
+
 /* We use explicit sizes here since this gets included from different
  * systems.  The sizes must be the size of the creating system
  * (currently 32 bit ARM) since this is gleaned from  dump.
@@ -91,10 +92,14 @@ typedef struct hnd_debug_reloc {
 /* Total MMU relocation table size for v2 */
 #define HND_DEBUG_RELOC_PTR_SIZE	(RELOC_NUM_ENTRIES * sizeof(hnd_debug_reloc_entry_t))
 
+
 #define HND_DEBUG_VERSION_1	1u	/* Legacy, version 1 */
 #define HND_DEBUG_VERSION_2	2u	/* Version 2 contains the MMU information
 					 * used for stack virtualization, etc.
 					 */
+
+/* Legacy debug version for older branches. */
+#define HND_DEBUG_VERSION	HND_DEBUG_VERSION_1
 
 /* This struct is placed at a well-defined location, and contains a pointer to hnd_debug. */
 typedef struct hnd_debug_ptr {
@@ -125,6 +130,9 @@ typedef struct hnd_debug {
 	uint32	magic;
 #define HND_DEBUG_MAGIC 0x47424544u	/* 'DEBG' */
 
+#ifndef HND_DEBUG_USE_V2
+	uint32	version;		/* Legacy, debug struct version */
+#else
 	/* Note: The original uint32 version is split into two fields:
 	 * uint16 version and uint16 length to accomidate future expansion
 	 * of the structure.
@@ -133,6 +141,7 @@ typedef struct hnd_debug {
 	 */
 	uint16	version;		/* Debug struct version */
 	uint16	length;			/* Size of the whole structure in bytes */
+#endif /* HND_DEBUG_USE_V2 */
 
 	uint32	fwid;			/* 4 bytes of fw info */
 	char	epivers[HND_DEBUG_EPIVERS_MAX_STR_LEN];
@@ -156,16 +165,20 @@ typedef struct hnd_debug {
 	char ver_signature[HND_DEBUG_BUILD_SIGNATURE_VER_LEN];
 	char chipid_signature[HND_DEBUG_BUILD_SIGNATURE_CHIPID_LEN]; /* chip=12345a3 */
 
+#ifdef HND_DEBUG_USE_V2
 	/* Version 2 fields */
 	/* Specifies the hnd debug MMU info */
 	_HD_DEBUG_RELOC_P	hnd_debug_reloc_ptr;
+#endif /* HND_DEBUG_USE_V2 */
 } hnd_debug_t;
 
+#ifdef HND_DEBUG_USE_V2
 #define HND_DEBUG_V1_SIZE       (OFFSETOF(hnd_debug_t, chipid_signature) + \
 				 sizeof(((hnd_debug_t *)0)->chipid_signature))
 
 #define HND_DEBUG_V2_BASE_SIZE  (OFFSETOF(hnd_debug_t, hnd_debug_reloc_ptr) + \
 				 sizeof(((hnd_debug_t *)0)->hnd_debug_reloc_ptr))
+#endif /* HND_DEBUG_USE_V2 */
 
 /* The following structure is used in populating build information */
 typedef struct hnd_build_info {

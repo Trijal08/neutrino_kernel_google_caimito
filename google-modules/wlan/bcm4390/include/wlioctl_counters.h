@@ -1897,6 +1897,11 @@ typedef struct wl_cnt_mcst_tx_v3 {
 	uint32	saqm_sendfrm_agg_cnt;		/**< # SAQM Send frame aggregation */
 	uint32	txbcn_phyerr_cnt;		/**< # Tx Beacon Phy error */
 	uint32	he_txtrig;			/**< # Tx Trigger Frames */
+
+	uint32	txctsfrm_infra;			/**< # CTS sent out by the MAC for infra */
+	uint32	norxfrm_aftertxcts;		/**< # rxframe after cts total */
+	uint32	norxfrm_aftertxcts_infra;	/**< # rxframe after cts only for infra */
+	uint32	norxfrm_aftertxcts_mu_cnt;	/**< # rxframe after TX cts for MU */
 } wl_cnt_mcst_tx_v3_t;
 
 typedef struct wl_cnt_mcst_tx_wrap_v2 {
@@ -3049,6 +3054,7 @@ typedef struct {
 	wl_traffic_stats_t tx_expired[AC_COUNT]; /**< packets dropped due to lifetime expiry */
 } wl_wme_cnt_t;
 
+
 typedef struct wl_wme_cnt_v2 {
 	uint16	version;	/**< see definition of WL_WME_CNT_VERSION */
 	uint16	length;		/**< length of entire structure */
@@ -3134,6 +3140,7 @@ typedef struct wlc_ba_cnt {
 } wlc_ba_cnt_t;
 /* #endif  WLBA */
 
+
 /* ##### Power Stats section ##### */
 
 #define WL_PWRSTATS_VERSION	2
@@ -3185,6 +3192,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_pwrstats {
 #define WLC_PMD_UCODE_WAKE_OVRRIDE	0x2000u
 #define WLC_PMD_WD_SLP_READY_REQ	0x4000u
 #define WLC_PMD_WD_TDLS			0x8000u
+
 
 #define WLC_PMD_PM2_RADIO_SOFF_PEND	0x2000u
 #define WLC_PMD_NON_PRIM_STA_UP		0x4000u
@@ -3713,6 +3721,7 @@ typedef struct wl_pwr_phy_stats {
 	uint32 rx_dur;	    /**< RX Active duration in us */
 } wl_pwr_phy_stats_t;
 
+
 typedef struct wl_mimo_meas_metrics_v1 {
 	uint16 type;
 	uint16 len;
@@ -3939,6 +3948,7 @@ typedef struct wlc_btc_stats_v13 {
 	/* core1, channel3 histogram count of ACI power (2%) */
 	uint32 fbagc_fbc_gain_stuck_cnt;
 	/* fbc gain stuck counter */
+	uint32 fbcx_forced_ded_dur;	/* fored dedicated cnt */
 } wlc_btc_stats_v13_t;
 
 #define BTCX_STATS_VER_12 12
@@ -4548,6 +4558,7 @@ typedef struct phy_ecounter_log_core_v5 {
 } phy_ecounter_log_core_v5_t;
 
 /* For trunk ONLY */
+#define PHY_ECOUNTER_LOG_CORE_VER255_SIZE		36u
 typedef struct phy_ecounter_log_core_v255 {
 	uint16	bad_txbaseidx_cnt;	/* cntr for tx_baseidx=127 in healthcheck */
 	uint16	curr_tssival;		/* TxPwrCtrlInit_path[01].TSSIVal */
@@ -5087,6 +5098,7 @@ typedef struct phy_ecounter_v7 {
 
 /* For trunk ONLY */
 /* Do not remove phy_ecounter_v1_t parameters */
+#define PHY_ECOUNTER_VER255_SIZE	304u
 typedef struct phy_ecounter_v255 {
 	chanspec_t	chanspec;
 	uint16		phy_wdg;		/* Count of times watchdog happened. */
@@ -5445,6 +5457,7 @@ typedef struct phy_phycal_core_v4 {
 } phy_phycal_core_v4_t;
 
 /* For trunk ONLY */
+#define PHY_PHYCAL_CORE_VER255_SIZE	228u
 typedef struct phy_phycal_core_v255 {
 	/* RxIQ imbalance coeff */
 	uint16	rxa;
@@ -5655,6 +5668,7 @@ typedef struct phy_phycal_v4 {
 } phy_phycal_v4_t;
 
 /* For trunk ONLY */
+#define PHY_PHYCAL_VER255_SIZE		548u
 typedef struct phy_phycal_v255 {
 	/* General info */
 	uint32 last_cal_time; /* in [sec], covers 136 years if 32 bit */
@@ -5742,6 +5756,7 @@ typedef struct phy_ecounter_phycal_stats_v4 {
 
 /* For trunk ONLY */
 #define PHY_ECOUNTERS_PHYCAL_STATS_VER255	255u
+#define PHY_ECOUNTERS_PHYCAL_STATS_VER255_SIZE	8u
 typedef struct phy_ecounter_phycal_stats_v255 {
 	uint16			version;
 	uint16			length;
@@ -5816,6 +5831,7 @@ typedef struct phy_ecounter_stats_v7 {
 
 /* For trunk ONLY */
 #define PHY_ECOUNTERS_STATS_VER255	255u
+#define PHY_ECOUNTERS_STATS_VER255_SIZE	8u
 typedef struct phy_ecounter_stats_v255 {
 	uint16			version;
 	uint16			length;
@@ -6550,6 +6566,7 @@ typedef struct {
 	int16 deauth_rssi;                      /* deauth pkt rssi */
 } wl_event_based_statistics_v4_t;
 
+
 /* ##### SC/ Sc offload/ WBUS related ecounters */
 
 #define WL_SC_PERIODIC_COMPACT_CNTRS_VER_1 (1)
@@ -6816,6 +6833,7 @@ typedef struct event_ecounters_config_request_v2 {
 #define EVENT_ECOUNTERS_FLAGS_BUS_H2D	(1 << 6) /* Add configuration for the bus direction
 						  * 0 - D2H and 1 - H2D
 						  */
+
 
 #define EVENT_ECOUNTERS_FLAGS_DELAYED_FLUSH	(1 << 7) /* Flush only when half of the total size
 						   * of blocks gets filled. This is to avoid

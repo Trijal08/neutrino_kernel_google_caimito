@@ -120,6 +120,7 @@ static s32 wldev_ioctl(
 	return ret;
 }
 
+
 /*
 SET commands :
 cast buffer to non-const  and call the GET function
@@ -139,6 +140,7 @@ s32 wldev_ioctl_set(
 #endif
 
 }
+
 
 s32 wldev_ioctl_get(
 	struct net_device *dev, u32 cmd, void *arg, u32 len)
@@ -220,6 +222,7 @@ s32 wldev_iovar_setint(
 	return wldev_iovar_setbuf(dev, iovar, &val, sizeof(val), iovar_buf,
 		sizeof(iovar_buf), NULL);
 }
+
 
 s32 wldev_iovar_getint(
 	struct net_device *dev, s8 *iovar, s32 *pval)
@@ -623,6 +626,7 @@ s32 wldev_iovar_setint_bsscfg(
 	return wldev_iovar_setbuf_bsscfg(dev, iovar, &val, sizeof(val), iovar_buf,
 		sizeof(iovar_buf), bssidx, NULL);
 }
+
 
 s32 wldev_iovar_getint_bsscfg(
 	struct net_device *dev, s8 *iovar, s32 *pval, s32 bssidx)

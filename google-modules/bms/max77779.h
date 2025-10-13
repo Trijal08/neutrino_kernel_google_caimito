@@ -115,10 +115,8 @@ struct max77779_foreach_cb_data {
 	bool otg_on;	/* power out, usually external */
 	bool frs_on;	/* power out, internal boost */
 
-	int wlc_rx;	/* charging wireless */
+	bool wlc_rx;	/* charging wireless */
 	bool wlc_tx;	/* battery share */
-
-	bool defender_enabled;
 
 	bool dc_on;	/* DC requested - wired or wireless */
 

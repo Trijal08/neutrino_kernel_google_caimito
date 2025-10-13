@@ -371,6 +371,7 @@ typedef enum {
 #define WLFC_PKTFLAG_CLR_PKTREQUESTED(x)	(x) &= \
 	~(WLFC_PKTFLAG_PKT_REQUESTED << WL_TXSTATUS_FLAGS_SHIFT)
 
+
 #define WLFC_MAX_PENDING_DATALEN	120
 
 /* host is free to discard the packet */
@@ -498,6 +499,7 @@ typedef enum {
 
 void wlc_wlfc_set_pkttime(void* pkt, uint16 time);
 
+
 /* reason for disabling APP, when none are set, APP will be enabled */
 typedef enum {
 	APP_STS_FLOWRING_NO_APP		= 0u,	/* Reason code used by pciedev */
@@ -506,9 +508,7 @@ typedef enum {
 	APP_STS_80211_FRAGMENTATION	= 3u,   /* 802.11 fragmentation enabled */
 	APP_STS_DISABLE_FOR_BTCX	= 4u,	/* BTCX requested APP disable */
 	APP_STS_DISABLE_FOR_QOS		= 5u,	/* Disable APP for QoS */
-	APP_STS_DISABLE_SP_PROBE	= 6u,	/* Disable APP for Spatial Probe */
-	APP_STS_FLOWRING_MESH		= 7u,	/* Disable APP for Mesh flowring under txmacapp */
-	APP_STS_MAX			= 8u	/* MAX */
+	APP_STS_MAX			= 6u	/* MAX */
 } app_disable_reason_s;
 
 /* shared structure between wlc and pciedev layer to set/reset a reason code */

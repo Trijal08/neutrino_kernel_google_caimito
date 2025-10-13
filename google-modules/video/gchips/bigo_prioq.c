@@ -12,24 +12,6 @@
 
 #include "bigo_prioq.h"
 
-static bool find_job_from_prioq(struct bigo_core *core, struct bigo_inst *inst)
-{
-	int i;
-	struct bigo_job *curr;
-	struct bigo_inst *curr_inst;
-
-	for (i = 0; i < BO_MAX_PRIO; i++) {
-		list_for_each_entry(curr, &core->prioq.queue[i], list) {
-			curr_inst = container_of(curr, struct bigo_inst, job);
-			if (inst == curr_inst) {
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
 int enqueue_prioq(struct bigo_core *core, struct bigo_inst *inst)
 {
 	struct bigo_job *job = &inst->job;
@@ -38,12 +20,6 @@ int enqueue_prioq(struct bigo_core *core, struct bigo_inst *inst)
 		return -EINVAL;
 
 	spin_lock(&core->prioq.lock);
-
-	if (find_job_from_prioq(core, inst)) {
-		spin_unlock(&core->prioq.lock);
-		return -EINVAL;
-	}
-
 	list_add_tail(&job->list, &core->prioq.queue[inst->priority]);
 	set_bit(inst->priority, &core->prioq.bitmap);
 	spin_unlock(&core->prioq.lock);
@@ -86,26 +62,20 @@ exit:
 	return *job != NULL;
 }
 
-bool clear_job_from_prioq(struct bigo_core *core, struct bigo_inst *inst)
+void clear_job_from_prioq(struct bigo_core *core, struct bigo_inst *inst)
 {
 	int i;
 	struct bigo_job *curr, *next;
 	struct bigo_inst *curr_inst;
-	bool found = false;
-
 	spin_lock(&core->prioq.lock);
 	for (i = 0; i < BO_MAX_PRIO; i++) {
 		list_for_each_entry_safe(curr, next, &core->prioq.queue[i], list) {
 			curr_inst = container_of(curr, struct bigo_inst, job);
-			if (inst == curr_inst) {
+			if (inst == curr_inst)
 				list_del(&curr->list);
-				found = true;
-				break;
-			}
 		}
 	}
 	spin_unlock(&core->prioq.lock);
-	return found;
 }
 
 MODULE_LICENSE("GPL");

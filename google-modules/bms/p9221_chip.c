@@ -625,7 +625,9 @@ static int ra9530_chip_set_vout_max(struct p9221_charger_data *chgr, u32 mv)
 	ret = chgr->reg_write_16(chgr, P9412_VOUT_SET_REG, mv / 10);
 
 	if (chgr->chg_mode_votable && chgr->chg_mode_off) {
-		gvotable_cast_long_vote(chgr->chg_mode_votable, HPP_VOTER, 0, false);
+		gvotable_cast_long_vote(chgr->chg_mode_votable,
+				P9221_WLC_VOTER,
+				0, false);
 		chgr->chg_mode_off = false;
 	}
 
@@ -1917,7 +1919,8 @@ static int p9412_prop_mode_capdiv_enable(struct p9221_charger_data *chgr)
 		chgr->chg_mode_votable =
 			gvotable_election_get_handle(GBMS_MODE_VOTABLE);
 	if (chgr->chg_mode_votable)
-		gvotable_cast_long_vote(chgr->chg_mode_votable, HPP_VOTER,
+		gvotable_cast_long_vote(chgr->chg_mode_votable,
+					P9221_WLC_VOTER,
 					MAX77759_CHGR_MODE_ALL_OFF, true);
 
 	/* total 2 seconds wait and early exit when WLC offline */
@@ -1942,7 +1945,8 @@ static int p9412_prop_mode_capdiv_enable(struct p9221_charger_data *chgr)
 
 error_exit:
 	if (chgr->chg_mode_votable)
-		gvotable_cast_long_vote(chgr->chg_mode_votable, HPP_VOTER,
+		gvotable_cast_long_vote(chgr->chg_mode_votable,
+					P9221_WLC_VOTER,
 					MAX77759_CHGR_MODE_ALL_OFF, false);
 
 	return ret;
@@ -2226,7 +2230,8 @@ static int ra9530_prop_mode_enable(struct p9221_charger_data *chgr, int req_pwr)
 			gvotable_election_get_handle(GBMS_MODE_VOTABLE);
 
 	if (chgr->chg_mode_votable) {
-		gvotable_cast_long_vote(chgr->chg_mode_votable, HPP_VOTER,
+		gvotable_cast_long_vote(chgr->chg_mode_votable,
+					P9221_WLC_VOTER,
 					MAX77759_CHGR_MODE_ALL_OFF, true);
 		chgr->chg_mode_off = true;
 	}
@@ -2378,8 +2383,9 @@ err_exit:
 				__func__, ret);
 
 		if (chgr->chg_mode_votable) {
-			gvotable_cast_long_vote(chgr->chg_mode_votable, HPP_VOTER,
-						MAX77759_CHGR_MODE_ALL_OFF, false);
+			gvotable_cast_long_vote(chgr->chg_mode_votable,
+					P9221_WLC_VOTER,
+					MAX77759_CHGR_MODE_ALL_OFF, false);
 			chgr->chg_mode_off = false;
 		}
 	}
@@ -3208,10 +3214,10 @@ static void p9xxx_gpio_set(struct gpio_chip *chip, unsigned int offset, int valu
 		if (value == 0) {
 			charger->rtx_gpio_state = RTX_NOT_SUPP;
 			charger->rtx_err |= RTX_CHRG_NOTSUP_BIT;
-			p9221_uevent(charger, UEVENT_RTX);
+			schedule_work(&charger->uevent_work);
 		} else if (value == 1 && charger->rtx_err & RTX_CHRG_NOTSUP_BIT) {
 			charger->rtx_err &= ~RTX_CHRG_NOTSUP_BIT;
-			p9221_uevent(charger, UEVENT_RTX);
+			schedule_work(&charger->uevent_work);
 		}
 		mutex_unlock(&charger->rtx_gpio_lock);
 		break;

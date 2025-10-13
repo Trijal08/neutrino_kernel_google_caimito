@@ -143,29 +143,6 @@ void gcip_pm_put_async(struct gcip_pm *pm);
 /* Flushes the pending pm_put work if any. */
 void gcip_pm_flush_put_work(struct gcip_pm *pm);
 
-/**
- * gcip_pm_flush_delayed_power_down_work() - Flushes the pending delayed power_down work.
- * @pm: The power management object.
- * @retry: The retry count.
- *
- * As the power_down work is designed to be repeatedly scheduled if the power down has been failed
- * with -EAGAIN error, this function will keep retrying flushing the work until the power down
- * succeeds. However, if the work fails even after @retry times, this function will eventually
- * cancel the work.
- */
-void gcip_pm_flush_delayed_power_down_work(struct gcip_pm *pm, int retry);
-
-/**
- * gcip_pm_flush_work() - Flushes the pending pm_put and delayed power_down works.
- * @pm: The power management object.
- * @power_down_retry: The retry count of flushing the power_down work.
- */
-static inline void gcip_pm_flush_work(struct gcip_pm *pm, int power_down_retry)
-{
-	gcip_pm_flush_put_work(pm);
-	gcip_pm_flush_delayed_power_down_work(pm, power_down_retry);
-}
-
 /* Gets the power up counter. Note that this is checked without PM lock. */
 int gcip_pm_get_count(struct gcip_pm *pm);
 
@@ -186,6 +163,9 @@ bool gcip_pm_suspendable_locked(struct gcip_pm *pm, int *count);
 /* Make sure @pm->lock is held. */
 static inline void gcip_pm_lockdep_assert_held(struct gcip_pm *pm)
 {
+	if (!pm)
+		return;
+
 	lockdep_assert_held(&pm->lock);
 }
 
@@ -197,6 +177,9 @@ static inline void gcip_pm_lockdep_assert_held(struct gcip_pm *pm)
  */
 static inline void gcip_pm_lock(struct gcip_pm *pm)
 {
+	if (!pm)
+		return;
+
 	mutex_lock(&pm->lock);
 }
 
@@ -207,12 +190,18 @@ static inline void gcip_pm_lock(struct gcip_pm *pm)
  */
 static inline int gcip_pm_trylock(struct gcip_pm *pm)
 {
+	if (!pm)
+		return 1;
+
 	return mutex_trylock(&pm->lock);
 }
 
 /* Unlock the PM lock. */
 static inline void gcip_pm_unlock(struct gcip_pm *pm)
 {
+	if (!pm)
+		return;
+
 	lockdep_assert_held(&pm->lock);
 	mutex_unlock(&pm->lock);
 }

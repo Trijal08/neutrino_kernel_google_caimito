@@ -24,6 +24,7 @@
  * <<Broadcom-WL-IPTag/Dual:>>
  */
 
+
 #ifndef _bcmiov_h_
 #define _bcmiov_h_
 
@@ -170,11 +171,7 @@ struct bcm_iov_batch_buf {
 	uint16 version;
 	uint8 count;
 	uint8 is_set;   /* obsolete */
-#ifdef BCM_NON_ISO_C
 	struct bcm_iov_batch_subcmd cmds[0];
-#else
-	struct bcm_iov_batch_subcmd cmds[];
-#endif
 };
 
 /* Non-Batched commands will have the following memory layout

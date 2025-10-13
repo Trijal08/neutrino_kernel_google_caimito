@@ -172,17 +172,11 @@ static int send_betp(struct link_device *ld, struct io_device *iod, char *buff,
 	reinit_completion(&gc->gnss_rdy_cmpl);
 	atomic_set(&gc->wait_rdy, 1);
 
-	gnssif_wlock_lock_timeout(iod->ws, msecs_to_jiffies(500));
+	gc->ops.gnss_send_betp_int(gc, 1);
 
 	gif_enable_irq(&gc->irq_gnss2ap_spi);
 
-	gc->ops.gnss_send_betp_int(gc, 1);
-
 	ret = wait_for_completion_timeout(&gc->gnss_rdy_cmpl, GNSS_RDY_TIMEOUT);
-
-	if (gnssif_wlock_active(iod->ws) > 0)
-		gnssif_wlock_unlock(iod->ws);
-
 	if (ret == 0) {
 		gif_err("TIMEOUT(%lu): gnss ready signal not came from kepler\n", GNSS_RDY_TIMEOUT);
 		dev_kfree_skb_any(skb);

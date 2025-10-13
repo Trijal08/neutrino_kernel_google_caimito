@@ -26,6 +26,11 @@
 
 #include <typedefs.h>
 
+/* Backwards compatibility for legacy branches. */
+#if !defined(BCM_EXTENSION)
+#define BCM_EXTENSION
+#endif
+
 typedef uint16		wl_ftm_session_id_t;
 typedef int16		wl_ftm_result_flags_t;
 typedef int16		wl_ftm_method_t;
@@ -46,6 +51,7 @@ typedef uint8 wl_ftm_type_t;
 /** session flags for 11AZ */
 
 /** global and method configuration flags */
+BCM_EXTENSION	/* Suppress warning: enum values in range 'int'. */
 enum wl_ftm_flags {
 	WL_FTM_FLAG_NONE			= 0x00000000,
 	WL_FTM_FLAG_RX_ENABLED			= 0x00000001, /* respond to requests, per bss */
@@ -327,6 +333,7 @@ enum wl_ftm_session_state {
 	WL_FTM_SESSION_STATE_INVALID		= -1
 };
 typedef int16 wl_ftm_session_state_t;
+
 
 /* FTM TLV IDs. Mirror of existing legacy PROXD with added entries for
  * new 11AZ ranging parameters.
@@ -653,6 +660,7 @@ enum wl_ftm_ranging_format_bw {
 };
 typedef uint8 wl_ftm_ranging_format_bw_t;
 
+
 /* WL_FTM_TLV_ID_AZ_RTT_SAMPLE_V1
  * 11az RTT sample from a measurement
  */
@@ -671,6 +679,7 @@ typedef struct wl_ftm_az_rtt_sample_v1 {
 	(((_sp)->flags & WL_FTM_AZ_RTT_SAMPLE_FLAG_SIGNED_RTT) != 0u)
 
 /* 11az RTT result flags */
+BCM_EXTENSION	/* Suppress warning: enum values in range 'int'. */
 enum wl_ftm_az_rtt_result_flags {
 	WL_FTM_AZ_RTT_RESULT_FLAG_NONE		= 0x00000000u,
 	WL_FTM_AZ_RTT_RESULT_FLAG_RTT_IN_100PS	= 0x00000001u, /* RTT in 100 ps unit */
@@ -874,5 +883,6 @@ typedef struct wl_ftm_timestamp_dump_v1 {
 	uint16 pad;
 	wl_ftm_timestamps_t timestamps_list[];	/* list of timestamps for each list entry */
 } wl_ftm_timestamp_dump_v1_t;
+
 
 #endif /* _ftm_ioctl_h */

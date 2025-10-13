@@ -110,7 +110,6 @@ typedef BWL_PRE_PACKED_STRUCT struct {
 #define EAPOL_WPA_KEY_RSC_LEN		8u
 #define EAPOL_WPA_KEY_ID_LEN		8u
 #define EAPOL_WPA_KEY_DATA_LEN		(EAPOL_WPA_MAX_KEY_SIZE + EAPOL_AKW_BLOCK_LEN)
-#define EAPOL_WPA_MIN_KEY_SIZE		16u
 #define EAPOL_WPA_MAX_KEY_SIZE		32u
 #define EAPOL_WPA_KEY_MAX_MIC_LEN	32u
 #define EAPOL_WPA_ENCR_KEY_MAX_LEN	64u
@@ -303,6 +302,7 @@ typedef BWL_PRE_PACKED_STRUCT struct {
 	uint8	link_id;		/* rsvd [0-3], link_id [4-7] */
 	uint8	key[EAPOL_WPA_MAX_KEY_SIZE];
 } BWL_POST_PACKED_STRUCT eapol_wpa2_key_mlo_igtk_encap_t;
+
 
 /* BIGTK encapsulation */
 #define EAPOL_RSN_BIPN_SIZE	6u

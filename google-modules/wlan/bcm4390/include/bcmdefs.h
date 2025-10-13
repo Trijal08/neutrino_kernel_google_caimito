@@ -153,17 +153,12 @@
 /* Compile-time assert can be used in place of ASSERT if the expression evaluates
  * to a constant at compile time.
  */
-#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
-/* _Static_assert() is supported in ISO C from C11. */
-#define STATIC_ASSERT(expr) _Static_assert(expr, "Static ASSERT failure")
-#else
 #define STATIC_ASSERT(expr) { \
 	/* Make sure the expression is constant. */ \
 	typedef enum { _STATIC_ASSERT_NOT_CONSTANT = (expr) } _static_assert_e BCM_UNUSED_VAR; \
 	/* Make sure the expression is true. */ \
 	typedef char STATIC_ASSERT_FAIL[(expr) ? 1 : -1] BCM_UNUSED_VAR; \
 }
-#endif /* __STDC_VERSION__ >= 201112L */
 
 /* Reclaiming text and data :
  * The following macros specify special linker sections that can be reclaimed
@@ -225,6 +220,7 @@ extern bool bcm_postattach_part_reclaimed;
 #define BCMCOEXCPUPREATTACHDATA(_data)	BCMPREATTACHDATA(_data)
 #define BCMCOEXCPUPREATTACHFN(_fn)	BCMPREATTACHFN(_fn)
 #endif /* COEX_CPU_REINIT && !COEX_CPU_REINIT_DISABLED */
+
 
 #define BCMINITDATA(_data)	_data
 #define BCMINITFN(_fn)		_fn
@@ -365,15 +361,6 @@ extern bool bcm_postattach_part_reclaimed;
 /* Use BCMSPECSYM() macro to tag symbols going to a special output section in the binary. */
 #define BCMSPECSYM(_sym)	__attribute__ ((__section__ (".special." #_sym))) _sym
 
-#ifdef BCMFUZZ
-#define BCM_UNROLL_LOOPS
-#else
-/** Use on functions with small loops with boundaries known at compile time to trade increased
- * memory usage for a few saved cycles by avoiding the branch statement caused by the loop.
- */
-#define BCM_UNROLL_LOOPS	__attribute__ ((optimize("unroll-loops")))
-#endif /* BCMFUZZ */
-
 #define STATIC	static
 
 /* functions that do not examine any values except their arguments, and have no effects except
@@ -415,6 +402,7 @@ extern bool bcm_postattach_part_reclaimed;
 #else
 #define CHIPTYPE(bus)	(bus)
 #endif
+
 
 /* Allows size optimization for SPROM support */
 #if defined(BCMSPROMBUS)
@@ -577,12 +565,14 @@ typedef struct  {
 #define MAX_DMA_SEGS 4
 #endif
 
+
 typedef struct {
 	void *oshdmah; /* Opaque handle for OSL to store its information */
 	uint origsize; /* Size of the virtual packet */
 	uint nsegs;
 	hnddma_seg_t segs[MAX_DMA_SEGS];
 } hnddma_seg_map_t;
+
 
 /* packet headroom necessary to accommodate the largest header in the system, (i.e TXOFF).
  * By doing, we avoid the need  to allocate an extra buffer for the header when bridging to WL.
@@ -816,19 +806,6 @@ extern bool _dvfsenab;
 	#define BCMDVFS_ENAB() (FALSE)
 #endif /* BCMDVFS */
 
-#ifdef BCM_HW_SFHLLC
-extern bool _hw_sfhllc_enab;
-#if defined(ROM_ENAB_RUNTIME_CHECK)
-	#define BCM_HW_SFHLLC_ENAB() (_hw_sfhllc_enab)
-#elif !defined(BCM_HW_SFHLLC_DISABLED)
-	#define BCM_HW_SFHLLC_ENAB() (TRUE)
-#else
-	#define BCM_HW_SFHLLC_ENAB() (FALSE)
-#endif
-#else
-	#define BCM_HW_SFHLLC_ENAB() (FALSE)
-#endif /* BCMDVFS */
-
 /* Max size for reclaimable NVRAM array */
 #ifndef ATE_BUILD
 #ifdef DL_NVRAM
@@ -1012,6 +989,7 @@ extern bool _tx_histogram_enabled;
 #define BCMPOST_TRAP_RAM_RODATA(data)	BCMPOST_TRAP_RODATA(data)
 #endif
 
+
 /* Similar to RO data on trap, we want code that's used after a trap to be placed in a special area
  * as this means we can use all of the rest of the .text for post trap dumps. Functions with
  * the BCMPOSTTRAPFN macro applied will either be in ROM or this protected area.
@@ -1037,13 +1015,16 @@ extern bool _tx_histogram_enabled;
 #define BCMPOSTTRAPRAMFN(fn)	BCMPOSTTRAPFN(fn)
 #endif /* ROMBUILD */
 
+
 typedef struct bcm_rng * bcm_rng_handle_t;
+
 
 /* Explicitly locate initialized data and uninitialized data (bss) in memory regions that
  * are NOT write-protected by the BUS-MPU.
  */
 #define BCM_BMPU_RW_DATA(_data)	__attribute__ ((__section__ (".data_bmpu_rw." #_data))) _data
 #define BCM_BMPU_RW_BSS(_data)	__attribute__ ((__section__ (".bss_bmpu_rw." #_data))) _data
+
 
 /* Use BCM_FUNC_PTR() to tag function pointers for ASLR code implementation. It will perform
  * run-time relocation of a function pointer by translating it from a physical to virtual address.
@@ -1056,12 +1037,10 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
 	/* 'func_ptr_err_chk' performs a compile time error check to ensure that only a constant
 	 * function name is passed as an argument to BCM_FUNC_PTR(). This ensures that the macro is
 	 * only used for function pointer references, and not for function pointer invocations.
-	 *
-	 * Cast function ptr arg to avoid warnings related to conversion of function ptr to void*.
 	 */
-	#define BCM_FUNC_PTR(fn) \
-		({ static void *func_ptr_err_chk __attribute__ ((unused)) = (void *)(uintptr)(fn); \
-		(__typeof__(&fn))(uintptr)BCM_ASLR_CODE_FNPTR_RELOCATOR((void *)(uintptr)(fn)); })
+	#define BCM_FUNC_PTR(func) \
+		({ static void *func_ptr_err_chk __attribute__ ((unused)) = (func); \
+		BCM_ASLR_CODE_FNPTR_RELOCATOR(func); })
 #else
 	#define BCM_FUNC_PTR(func)         (func)
 #endif /* BCM_ASLR_CODE_FNPTR_RELOC */
@@ -1081,6 +1060,7 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
 #define BCM_MMU_PAGE_TABLE_DATA(_data) \
 	__attribute__ ((__section__ (".mmu_pagetable." #_data))) _data
 
+
 /* Some phy initialization code/data can't be reclaimed in dualband mode */
 #if defined(DBAND)
 #define WLBANDINITDATA(_data)	_data
@@ -1089,6 +1069,7 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
 #define WLBANDINITDATA(_data)	BCMINITDATA(_data)
 #define WLBANDINITFN(_fn)	BCMINITFN(_fn)
 #endif
+
 
 /* Tag struct members to make it explicitly clear that they are physical addresses. These are
  * typically used in data structs shared by the firmware and host code (or off-line utilities). The

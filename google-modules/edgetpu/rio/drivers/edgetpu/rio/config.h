@@ -1,8 +1,8 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Include all configuration files for Rio.
  *
- * Copyright (C) 2021-2025 Google LLC
+ * Copyright (C) 2021 Google, Inc.
  */
 
 #ifndef __RIO_CONFIG_H__
@@ -27,9 +27,6 @@
 /* Number of TPU clusters for metrics handling. */
 #define EDGETPU_TPU_CLUSTER_COUNT 3
 
-/* Size of IKV queues (in unit number of elements). */
-#define EDGETPU_IKV_QUEUE_SIZE 1023
-
 /*
  * TZ Mailbox ID for secure workloads.  Must match firmware kTzMailboxId value for the chip,
  * but note firmware uses a zero-based index vs. kernel passing a one-based value here.
@@ -40,8 +37,6 @@
 
 /* A special client ID for secure workloads pre-agreed with firmware (kTzRealmId). */
 #define EDGETPU_EXT_TZ_CONTEXT_ID 0x40000000
-
-#define EDGETPU_MMU_GRANULARITY_IS_PAGE 0
 
 #include "config-mailbox.h"
 #include "config-pwr-state.h"

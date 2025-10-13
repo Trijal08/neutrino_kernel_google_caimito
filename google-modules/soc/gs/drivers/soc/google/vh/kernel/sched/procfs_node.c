@@ -47,11 +47,6 @@ static struct idle_inject_device *iidev_l;
 static struct idle_inject_device *iidev_m;
 static struct idle_inject_device *iidev_b;
 
-#if IS_ENABLED(CONFIG_RVH_SCHED_LIB)
-static unsigned long sched_lib_mask_in_val;
-static unsigned long sched_lib_mask_out_val;
-#endif
-
 extern void initialize_vendor_group_property(void);
 
 extern struct vendor_group_property *get_vendor_group_property(enum vendor_group group);
@@ -199,7 +194,6 @@ enum vendor_procfs_type {
 		__PROC_GROUP_ENTRY(qos_prefer_high_cap_enable, __group_name, __vg),	\
 		__PROC_GROUP_ENTRY(qos_rampup_multiplier_enable, __group_name, __vg),	\
 		__PROC_GROUP_ENTRY(disable_sched_setaffinity, __group_name, __vg),	\
-		__PROC_GROUP_ENTRY(disable_sched_setaffinity_mask, __group_name, __vg),	\
 		__PROC_GROUP_ENTRY(use_batch_policy, __group_name, __vg),		\
 		__PROC_SET_GROUP_ENTRY(set_task_group, __group_name, __vg),	\
 		__PROC_SET_GROUP_ENTRY(set_proc_group, __group_name, __vg)
@@ -563,8 +557,6 @@ static inline bool reset_group_batch_policy(enum vendor_group group);
 	VENDOR_GROUP_BOOL_ATTRIBUTE(__grp, qos_rampup_multiplier_enable, __vg);		\
 	VENDOR_GROUP_UINT_ATTRIBUTE_CHECK(__grp, disable_sched_setaffinity, __vg,	\
 					  reset_group_sched_setaffinity);		\
-	VENDOR_GROUP_UINT_ATTRIBUTE_CHECK(__grp, disable_sched_setaffinity_mask, __vg,	\
-					  reset_group_sched_setaffinity);		\
 	VENDOR_GROUP_UINT_ATTRIBUTE_CHECK(__grp, use_batch_policy, __vg,		\
 					  reset_group_batch_policy);			\
 	CREATE_VENDOR_GROUP_UTIL_ATTRIBUTES(__grp, __vg);
@@ -710,34 +702,12 @@ fail:
 	return -EINVAL;
 }
 
-inline void __reset_task_affinity_mask(struct task_struct *p, const struct cpumask *in_mask)
-{
-#if IS_ENABLED(CONFIG_RVH_SCHED_LIB)
-	struct cpumask out_mask;
-
-	if (!vg[get_vendor_group(p)].disable_sched_setaffinity_mask)
-		return;
-
-	if (!(sched_lib_mask_in_val && sched_lib_mask_out_val))
-		return;
-
-	if (in_mask->bits[0] != sched_lib_mask_in_val)
-		return;
-
-	out_mask.bits[0] = sched_lib_mask_out_val;
-	set_cpus_allowed_ptr(p, &out_mask);
-#endif
-}
-
-inline void __reset_task_affinity(struct task_struct *p, const struct cpumask *in_mask)
+inline void __reset_task_affinity(struct task_struct *p)
 {
 	struct cpumask out_mask;
 
 	if (p->flags & (PF_SUPERPRIV | PF_WQ_WORKER | PF_IDLE | PF_NO_SETAFFINITY | PF_KTHREAD))
 		return;
-
-	if (in_mask)
-		return __reset_task_affinity_mask(p, in_mask);
 
 	cpuset_cpus_allowed(p, &out_mask);
 	set_cpus_allowed_ptr(p, &out_mask);
@@ -752,7 +722,7 @@ static inline void reset_sched_setaffinity(void)
 
 	rcu_read_lock();
 	for_each_process_thread(p, t)
-		__reset_task_affinity(t, NULL);
+		__reset_task_affinity(t);
 	rcu_read_unlock();
 }
 
@@ -763,19 +733,13 @@ static inline bool reset_group_sched_setaffinity(enum vendor_group group)
 {
 	struct task_struct *p, *t;
 
-	if (!vg[group].disable_sched_setaffinity &&
-	    !vg[group].disable_sched_setaffinity_mask)
+	if (!vg[group].disable_sched_setaffinity)
 		return true;
 
 	rcu_read_lock();
 	for_each_process_thread(p, t) {
-		const struct cpumask *in_mask = NULL;
-
-		if (get_vendor_group(t) == group) {
-			if (vg[group].disable_sched_setaffinity_mask)
-				in_mask = t->cpus_ptr;
-			__reset_task_affinity(t, in_mask);
-		}
+		if (get_vendor_group(t) == group)
+			__reset_task_affinity(t);
 	}
 	rcu_read_unlock();
 
@@ -1430,9 +1394,7 @@ static inline void update_vendor_group_attribute(struct task_struct *p, int new)
 
 	/* check affinity */
 	if (vg[new].disable_sched_setaffinity)
-		__reset_task_affinity(p, NULL);
-	else if (vg[new].disable_sched_setaffinity_mask)
-		__reset_task_affinity(p, p->cpus_ptr);
+		__reset_task_affinity(p);
 
 	set_batch_policy(p, old, new);
 
@@ -2745,6 +2707,7 @@ static ssize_t use_em_for_freq_mapping_store(struct file *filp,
 PROC_OPS_RW(use_em_for_freq_mapping);
 
 #if IS_ENABLED(CONFIG_RVH_SCHED_LIB)
+extern unsigned long sched_lib_mask_out_val;
 
 static int sched_lib_mask_out_show(struct seq_file *m, void *v)
 {
@@ -2777,6 +2740,7 @@ static ssize_t sched_lib_mask_out_store(struct file *filp,
 
 PROC_OPS_RW(sched_lib_mask_out);
 
+extern unsigned long sched_lib_mask_in_val;
 static int sched_lib_mask_in_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "0x%lx\n", sched_lib_mask_in_val);
@@ -2806,6 +2770,13 @@ static ssize_t sched_lib_mask_in_store(struct file *filp,
 }
 
 PROC_OPS_RW(sched_lib_mask_in);
+
+extern ssize_t sched_lib_name_store(struct file *filp,
+				const char __user *ubuffer, size_t count,
+				loff_t *ppos);
+extern int sched_lib_name_show(struct seq_file *m, void *v);
+
+PROC_OPS_RW(sched_lib_name);
 
 extern bool disable_sched_setaffinity;
 static int disable_sched_setaffinity_show(struct seq_file *m, void *v)
@@ -3659,6 +3630,7 @@ static struct pentry entries[] = {
 	// sched lib
 	PROC_ENTRY(sched_lib_mask_out),
 	PROC_ENTRY(sched_lib_mask_in),
+	PROC_ENTRY(sched_lib_name),
 	PROC_ENTRY(disable_sched_setaffinity),
 #endif /* CONFIG_RVH_SCHED_LIB */
 	// uclamp filter
@@ -3738,7 +3710,7 @@ int create_procfs_node(void)
 	/* create vendor sched root directory */
 	vendor_sched = proc_mkdir("vendor_sched", NULL);
 	if (!vendor_sched)
-		return -ENOMEM;
+		goto out;
 
 	/* create vendor group directories */
 	group_root_dir = proc_mkdir("groups", vendor_sched);
@@ -3785,6 +3757,7 @@ int create_procfs_node(void)
 					parent_directory, entries[i].fops)) {
 			pr_debug("%s(), create %s failed\n",
 					__func__, entries[i].name);
+			remove_proc_entry("vendor_sched", NULL);
 
 			goto out;
 		}
@@ -3830,7 +3803,6 @@ int create_procfs_node(void)
 	return 0;
 
 out:
-	remove_proc_subtree("vendor_sched", NULL);
 	return -ENOMEM;
 }
 

@@ -480,8 +480,6 @@ static int max77779_foreach_callback(void *data, const char *reason,
 		pr_debug("%s: WLCIN_OFF %s vote=0x%x\n", __func__,
 			 reason ? reason : "<>", mode);
 		cb_data->wlcin_off += 1;
-		if (strcmp(reason, MSC_PWR_VOTER) == 0)
-			cb_data->defender_enabled = true;
 		break;
 	/* MAX77779: charging on via CC_MAX (needs inflow, buck_on on) */
 	case GBMS_CHGR_MODE_CHGR_BUCK_ON:
@@ -529,15 +527,6 @@ static int max77779_foreach_callback(void *data, const char *reason,
 		pr_debug("%s: WLC_TX vote=%x\n", __func__, mode);
 		cb_data->wlc_tx += 1;
 		break;
-
-	/* WLC_RX */
-	case GBMS_CHGR_MODE_WLC_RX:
-		if (!cb_data->wlc_rx)
-			cb_data->reason = reason;
-		pr_debug("%s: WLC_RX vote=%x\n", __func__, mode);
-		cb_data->wlc_rx += 1;
-		break;
-
 	case GBMS_CHGR_MODE_FWUPDATE_BOOST_ON:
 		pr_debug("%s: FWUPDATE vote=%x\n", __func__, mode);
 		cb_data->fwupdate_on = true;
@@ -867,7 +856,7 @@ static int max77779_set_insel(struct max77779_chgr_data *data,
 		else
 			state = WLC_DISABLED;
 
-		ret = gs201_wlc_en_with_defender_reason(uc_data, state, cb_data->defender_enabled);
+		ret = gs201_wlc_en(uc_data, state);
 
 		if (ret < 0)
 			pr_err("%s: error wlc_en=%d ret:%d\n", __func__,
@@ -1002,6 +991,9 @@ static int max77779_mode_callback(struct gvotable_election *el,
 	cb_data.reg = reg;	/* current */
 	cb_data.el = el;	/* election */
 
+	/* read directly instead of using the vote */
+	cb_data.wlc_rx = (max77779_wcin_is_online(data) &&
+			 !data->wcin_input_suspend) || data->wlc_spoof;
 	cb_data.wlcin_off = !!data->wcin_input_suspend;
 
 	pr_debug("%s: wcin_is_online=%d data->wcin_input_suspend=%d data->wlc_spoof=%d\n", __func__,
@@ -1010,8 +1002,7 @@ static int max77779_mode_callback(struct gvotable_election *el,
 	/* now scan all the reasons, accumulate in cb_data */
 	gvotable_election_for_each(el, max77779_foreach_callback, &cb_data);
 
-	cb_data.wlc_rx = (cb_data.wlc_rx && !cb_data.pogo_vout && !data->wcin_input_suspend) ||
-			  data->wlc_spoof;
+	cb_data.wlc_rx = cb_data.wlc_rx && !cb_data.pogo_vout;
 
 	nope = !cb_data.use_raw && !cb_data.stby_on && !cb_data.dc_on &&
 	       !cb_data.chgr_on && !cb_data.buck_on &&
@@ -1277,24 +1268,14 @@ static int max77779_wcin_input_suspend(struct max77779_chgr_data *data,
 				       bool enabled, const char *reason)
 {
 	const int old_value = data->wcin_input_suspend;
-	const long vote = GBMS_CHGR_MODE_WLCIN_OFF;
-	const void *val = (const void *)0;
-	int ret = 0, icl;
+	int ret;
 
-	dev_dbg(data->dev, "%s %s vote=%d", __func__, reason, enabled);
+	pr_debug("%s enabled=%d->%d reason=%s\n", __func__,
+		 data->wcin_input_suspend, enabled, reason);
 
-	ret = gvotable_get_current_vote(data->dc_suspend_votable, &val);
-	icl = gvotable_get_current_int_vote(data->dc_icl_votable);
-	if (ret == 0) {
-		data->wcin_input_suspend = (uintptr_t)val > 0 || icl == 0;
-		dev_dbg(data->dev, "%s wcin_input_suspend=%d(dc_suspend=%lu,icl_suspend=%d)",
-			 __func__, data->wcin_input_suspend, (uintptr_t)val, icl == 0);
-	}
-
-	dev_dbg(data->dev, "%s enabled=%d->%d reason=%s vote:%ld\n", __func__,
-		 old_value, data->wcin_input_suspend, reason, vote);
-
-	ret = gvotable_cast_long_vote(data->mode_votable, reason, vote, enabled);
+	data->wcin_input_suspend = enabled; /* the callback uses this!  */
+	ret = gvotable_cast_long_vote(data->mode_votable, reason,
+				      GBMS_CHGR_MODE_WLCIN_OFF, enabled);
 	if (ret < 0)
 		data->wcin_input_suspend = old_value; /* restore */
 
@@ -1701,34 +1682,14 @@ static int max77779_dc_suspend_vote_callback(struct gvotable_election *el,
 {
 	struct max77779_chgr_data *data = gvotable_get_data(el);
 	int ret, suspend = (long)value > 0;
-	bool is_msc_voter_enabled_now = false;
-	bool msc_was_deasserted = false;
-	const char *reason_to_propagate =
-		(suspend && reason && strcmp(reason, MSC_PWR_VOTER) == 0) ? reason : "DC_SUSPEND";
 
-	// Detect the state change of our specific voter, "MSC_PWR_VOTER".
-	ret = gvotable_is_enabled(el, MSC_PWR_VOTER, &is_msc_voter_enabled_now);
-	// Compare the current state with our stored state to detect the "falling edge".
-	msc_was_deasserted = data->msc_pwr_voter_active && (ret != 0 || !is_msc_voter_enabled_now);
-	// After the check, always update our tracker to the current state for the next run.
-	data->msc_pwr_voter_active = (ret == 0 && is_msc_voter_enabled_now);
-
-	// If our specific voter was just retracted, we must propagate this event.
-	if (msc_was_deasserted) {
-		pr_info("%s was retracted. Propagating this specific event.\n", MSC_PWR_VOTER);
-		// This call informs the rest of the system (like the mode_votable) that
-		// the constraint from MSC_PWR_VOTER has been removed.
-		max77779_wcin_input_suspend(data, false, MSC_PWR_VOTER);
-	}
-
-	// Always handle the final state of the overall election
 	/* will trigger a CHARGER_MODE callback */
-	ret = max77779_wcin_input_suspend(data, suspend, reason_to_propagate);
+	ret = max77779_wcin_input_suspend(data, suspend, "DC_SUSPEND");
 	if (ret < 0)
 		return 0;
 
-	pr_debug("%s: DC_SUSPEND reason=%s, reason_to_propagate=%s, value=%ld suspend=%d (%d)\n",
-		 __func__, reason ? reason : "", reason_to_propagate, (long)value, suspend, ret);
+	pr_debug("%s: DC_SUSPEND reason=%s, value=%ld suspend=%d (%d)\n",
+		 __func__, reason ? reason : "", (long)value, suspend, ret);
 
 	return 0;
 }

@@ -30,6 +30,7 @@
 #include <802.11.h>
 #include <802.11brcm.h>
 
+
 /* Table of event name strings for UIs and debugging dumps */
 typedef struct {
 	uint event;
@@ -193,6 +194,7 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 	BCMEVENT_NAME(WLC_E_PROBREQ_MSG_RX),
 
 
+
 	BCMEVENT_NAME(WLC_E_CSA_START_IND),
 	BCMEVENT_NAME(WLC_E_CSA_DONE_IND),
 	BCMEVENT_NAME(WLC_E_CSA_FAILURE_IND),
@@ -252,9 +254,6 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 	BCMEVENT_NAME(WLC_E_ULMU_DISABLED_REASON_UPD),
 	BCMEVENT_NAME(WLC_E_EDS_EVENT),
 	BCMEVENT_NAME(WLC_E_ICM),
-	BCMEVENT_NAME(WLC_E_AP_BCN_MUTE),
-	BCMEVENT_NAME(WLC_E_VLPTPC),
-	BCMEVENT_NAME(WLC_E_SBI_SC_EVENT)
 };
 
 const char *bcmevent_get_name(uint event_type)

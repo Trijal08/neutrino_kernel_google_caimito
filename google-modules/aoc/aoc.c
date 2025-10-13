@@ -1431,7 +1431,7 @@ static void aoc_did_become_online(struct work_struct *work)
 				dev_name(&prvdata->services[i]->dev), ret);
 	}
 
-	if (!of_property_read_bool(prvdata->dev->of_node, "skip-mmap-offload"))
+	if (!IS_ENABLED(CONFIG_SOC_GS101) && !IS_ENABLED(CONFIG_SOC_GS201))
 		if ((!prvdata->audio_offload_heap_base) && (!aoc_set_dma_buf_as_ring(prvdata)))
 			dev_err(dev, "failed to set the dma-buf heap as ring buffer\n");
 
@@ -2427,7 +2427,7 @@ bool aoc_set_dma_buf_as_ring(struct aoc_prvdata *prvdata)
 								phy_ring_base, OFFLOAD_HEAP_SIZE);
 	prvdata->audio_offload_heap_base = phy_ring_base;
 
-	return !IS_ERR(prvdata->audio_offload_heap);
+	return IS_ERR(prvdata->audio_offload_heap);
 }
 
 /* Returns true if `base` is located within the aoc dram carveout */

@@ -31,6 +31,7 @@
  *  a pair of channels is defined for convenience
  */
 
+
 /* 32 bits addressing */
 
 /** dma registers per channel(xmt or rcv) */
@@ -284,6 +285,7 @@ typedef volatile struct {
  */
 #define D64_DEF_USBBURSTLEN     2
 #define D64_DEF_SDIOBURSTLEN    1
+
 
 #ifndef D64_USBBURSTLEN
 #define D64_USBBURSTLEN	DMA_BL_64

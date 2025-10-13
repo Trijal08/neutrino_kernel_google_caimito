@@ -1354,7 +1354,7 @@ static int __mfc_core_nal_q_run_in_buf_dec(struct mfc_core *core, struct mfc_cor
 
 	pInStr->StreamDataSize = strm_size;
 	pInStr->CpbBufferAddr = buf_addr;
-	pInStr->CpbBufferSize = cpb_buf_size + offset;
+	pInStr->CpbBufferSize = cpb_buf_size;
 	pInStr->CpbBufferOffset = offset;
 	ctx->last_src_addr = buf_addr;
 
@@ -2055,13 +2055,8 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 					>> MFC_REG_DISP_STATUS_CROP_INFO_CHANGE_SHIFT)
 					& MFC_REG_DISP_STATUS_CROP_INFO_CHANGE_MASK;
 		if (is_crop_info_change) {
-			mfc_ctx_info("[NALQ][FRAME][DRC] crop info changed\n");
-			mutex_lock(&ctx->drc_wait_mutex);
-			ctx->wait_state = WAIT_G_FMT;
 			__mfc_core_nal_q_get_crop_info(core, ctx, pOutStr);
 			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
-			dec->disp_drc.disp_crop_change = 1;
-			mutex_unlock(&ctx->drc_wait_mutex);
 		}
 
 		if (is_hdr10_plus_sei) {

@@ -168,52 +168,6 @@ typedef struct event_log_block {
 	/* Event logs go here. Do not put extra fields below. */
 } event_log_block_t;
 
-/* Event log top flags */
-/* Event log uses PTM timestamps for log record timestamps */
-#define EVENT_LOG_TOP_FLAG_USE_PTM_TIMESTAMP	((uint8)(1u << 0))
-/* Event log feature: All blocks in event logs have more data */
-#define EVENT_LOG_TOP_FLAG_BLOCK_DATA_EXT	((uint8)(1u << 1))
-
-/* Event log block extended data aka Event log per block feature */
-#ifdef EVENT_LOG_BLOCK_DATA_EXT
-/* ets_msg[] in event_log_block_at_end_data_t is large enough to hold both
- * v1 and v2 ets messages.
- * Note: The parsing tool + host build also include this file in their
- * compilation and may not know in advance which version of ETS message may be coming.
- * So the buffer holding timestamp copy must be large enough to
- * hold both v1 and v2 messages
- */
-#define EVENT_LOG_ENHANCED_TIMESTAMP_COPY_DATA_LEN_BYTES				\
-	(sizeof(ets_msg_t) + sizeof(ets_msg_v1_t) + sizeof(ets_msg_v2_t) +		\
-	((EVENT_LOG_MESSAGE_OVERHEAD) * sizeof(uint32)))
-
-/* Per block info that appears just at the start of a log block
- * A log block is sandwiched between two per-block data one at the start
- * and the other at the end
- */
-typedef struct event_log_block_at_start_data {
-	uint32 last_valid_record_start_ofst;	/* Last valid record start ofset in this log buf.
-						 * Top 16 bits Reserved
-						 */
-} event_log_block_at_start_data_t;
-
-/* Event log block data stored at the end of block */
-typedef struct event_log_block_at_end_data {
-	uint32 dbg_count; /* For matching purposes at the end of filling the block */
-	uint32 last_valid_record_start_ofst;	/* Last valid record start ofset in this log buf
-						 * Top 16 bits Reserved
-						 */
-	/* copy of the first ETS msg written to this log buffer */
-	uint8 ets_msg_copy[EVENT_LOG_ENHANCED_TIMESTAMP_COPY_DATA_LEN_BYTES];
-} event_log_block_at_end_data_t;
-
-/* Event log block data stored at the start of block */
-typedef struct event_log_block_data_ext_start {
-	event_log_block_at_start_data_t at_start_data;
-	event_log_block_t block;
-} event_log_block_data_ext_start_t;
-#endif /* EVENT_LOG_BLOCK_DATA_EXT */
-
 /* Block specific data */
 #define EVENT_LOG_PRESERVE_BLOCK	(1u)
 #define EVENT_LOG_COEX_LOG		(2u)	/* Logging from coex firmware */
@@ -225,6 +179,7 @@ typedef struct event_log_block_data_ext_start {
 /* Relative offset of extra_hdr_info field frpm pktlen field in log block */
 #define EVENT_LOG_BUF_EXTRA_HDR_INFO_REL_PKTLEN_OFFSET		\
 	(OFFSETOF(event_log_block_t, extra_hdr_info) -	OFFSETOF(event_log_block_t, pktlen))
+
 
 #define EVENT_LOG_BLOCK_HDRLEN		(sizeof(((event_log_block_t *) 0)->pktlen) \
 					+ sizeof(((event_log_block_t *) 0)->count) \
@@ -311,22 +266,12 @@ typedef struct event_log_set {
 #define EVENT_LOG_SET_SHADOW			BCM_BIT(5)
 #define EVENT_LOG_SET_PARTIAL_SENT		BCM_BIT(6)
 
-#define EVENT_LOG_TOP_MAGIC	0x474C8669 /* 'EVLG' */
-
-#define EVENT_LOG_VERSION_1	1u
-#define EVENT_LOG_VERSION_2	2u
-
-#if defined(EVENT_LOG_BLOCK_DATA_EXT)
-#define EVENT_LOG_VERSION	EVENT_LOG_VERSION_2
-#else
-#define EVENT_LOG_VERSION	EVENT_LOG_VERSION_1
-#endif /* defined(EVENT_LOG_BLOCK_DATA_EXT) */
-
 /* Top data structure for access to everything else */
-/* event_log_top_v2_t is the same as event_log_top_v1_t except flags field and bumped up version */
-typedef struct event_log_top_v1 {
+typedef struct event_log_top {
 	uint32 magic;
+#define EVENT_LOG_TOP_MAGIC 0x474C8669 /* 'EVLG' */
 	uint32 version;
+#define EVENT_LOG_VERSION 1
 	uint32 num_sets;
 	uint32 logstrs_size;		/* Size of lognums + logstrs area */
 	uint32 timestamp;		/* Last timestamp event */
@@ -338,22 +283,9 @@ typedef struct event_log_top_v1 {
 	bool cpu_freq_changed;		/* Set to TRUE when CPU freq changed */
 	bool hostmem_access_enabled;	/* Is host memory access enabled for log delivery */
 	bool event_trace_enabled;	/* WLC_E_TRACE enabled/disabled */
-	uint8 flags;			/* Only for event log version 2 */
 	uint64 t0_time;			/* Time at system startup. Stored for debug */
 	uint64 cur_log_write_ptm_time;	/* current raw PTM time in ns at log write time */
-} event_log_top_v1_t;
-
-#if defined(EVENT_LOG_BLOCK_DATA_EXT)
-/* V1 and V2 are the same except that v2 introduces flags field in the PAD bytes of v1 struct
- * and bumps up the version number
- */
-typedef event_log_top_v1_t event_log_top_v2_t;
-typedef event_log_top_v2_t event_log_top_vx_t;
-#else
-typedef event_log_top_v1_t event_log_top_vx_t;
-#endif /* defined(EVENT_LOG_BLOCK_DATA_EXT) */
-
-typedef event_log_top_vx_t event_log_top_t;
+} event_log_top_t;
 
 /* structure of the trailing 3 words in logstrs.bin */
 typedef struct {
@@ -544,6 +476,7 @@ extern bool prsv_periodic_enab;
 #define _EVENT_LOGF(tag, fmt_num, fmt, ...) event_logn(15, tag, fmt_num, __VA_ARGS__)
 #endif /* EVENT_LOG_FIXED_ARGS_ONLY */
 
+
 /* Casting  low level macros */
 #define _EVENT_LOG_CAST0(tag, fmt_num, fmt)		\
 	event_log0(tag, fmt_num)
@@ -627,6 +560,7 @@ extern bool prsv_periodic_enab;
 			       7, 6, 5, 4, 3, 2, 1, 0)			\
 	(tag, (int) &fmtnum, __VA_ARGS__)
 
+
 #define EVENT_LOG_FAST(tag, ...)					\
 	do {								\
 		if (event_log_tag_sets != NULL) {			\
@@ -658,6 +592,7 @@ extern bool prsv_periodic_enab;
 		_EVENT_LOG(_EVENT_LOG_CAST, tag, __VA_ARGS__);		\
 	} while (0)
 
+
 #define EVENT_LOG(tag, ...) EVENT_LOG_COMPACT(tag, __VA_ARGS__)
 
 #define EVENT_LOG_CAST(tag, ...) EVENT_LOG_COMPACT_CAST(tag, __VA_ARGS__)
@@ -665,30 +600,14 @@ extern bool prsv_periodic_enab;
 #define _EVENT_LOG_REMOVE_PAREN(...) __VA_ARGS__
 #define EVENT_LOG_REMOVE_PAREN(args) _EVENT_LOG_REMOVE_PAREN args
 
-//printf is to catch any wrong parameters at compiletime.
 #define EVENT_LOG_CAST_PAREN_ARGS(tag, pargs)				\
-	do {								\
-		if (0) {						\
-			printf pargs;					\
-		}							\
-		EVENT_LOG_CAST(tag, EVENT_LOG_REMOVE_PAREN(pargs));	\
-	} while (0)
+		EVENT_LOG_CAST(tag, EVENT_LOG_REMOVE_PAREN(pargs))
 
 #define EVENT_LOG_FAST_CAST_PAREN_ARGS(tag, pargs)			\
-	do {								\
-		if (0) {						\
-			printf pargs;					\
-		}							\
-		EVENT_LOG_FAST_CAST(tag, EVENT_LOG_REMOVE_PAREN(pargs)); \
-	} while (0)
+		EVENT_LOG_FAST_CAST(tag, EVENT_LOG_REMOVE_PAREN(pargs))
 
 #define EVENT_LOG_COMPACT_CAST_PAREN_ARGS(tag, pargs)			\
-	do {								\
-		if (0) {						\
-			printf pargs;					\
-		}							\
-		EVENT_LOG_COMPACT_CAST(tag, EVENT_LOG_REMOVE_PAREN(pargs)); \
-	} while (0)
+		EVENT_LOG_COMPACT_CAST(tag, EVENT_LOG_REMOVE_PAREN(pargs))
 
 /* Minimal event logging. Event log internally calls event_logx()
  * log return address in caller.
@@ -729,6 +648,7 @@ extern bool prsv_periodic_enab;
 
 extern uint8 *event_log_tag_sets;
 
+
 /**
  * @brief Convert a 64 bits nsec timestamp to a 32bit timestamp of 256ns per count
  *
@@ -741,6 +661,7 @@ event_log_nsec_to_log_ts(uint64 nsec_ts)
 {
 	return (uint32)(nsec_ts >> 8u);
 }
+
 
 /* Initialize event log top and tag_sets context on given buffers. */
 int event_log_init_context(event_log_top_t *top, uint8 *tag_sets, uint16 tag_sets_len,
@@ -789,6 +710,7 @@ extern uint8 *event_log_next_logtrace(int set_num);
 extern uint32 event_log_logtrace_max_buf_count(int set_num);
 extern int event_log_set_type(int set_num, uint8 *type, int is_get);
 extern int event_log_flush_set(wl_el_set_flush_prsrv_t *flush, int is_set);
+
 
 extern void event_log0(int tag, int fmtNum);
 extern void event_log1(int tag, int fmtNum, uint32 t1);

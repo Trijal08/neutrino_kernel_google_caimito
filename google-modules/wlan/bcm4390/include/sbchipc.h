@@ -1048,6 +1048,7 @@ typedef volatile struct chipcregs chipcregs_t;
 /* Fields in otplayoutextension */
 #define OTPLAYOUTEXT_FUSE_MASK	0x3FF
 
+
 /* Jtagm characteristics that appeared at a given corerev */
 #define	JTAGM_CREV_OLD		10	/**< Old command set, 16bit max IR */
 #define	JTAGM_CREV_IRP		22	/**< Able to do pause-ir */
@@ -1414,6 +1415,7 @@ typedef volatile struct chipcregs chipcregs_t;
 #define	CC_EB_PCMCIA1_IO	0x1aa00000	/**< PCMCIA 1 I/O base address */
 #define	CC_EB_PCMCIA1_CFG	0x1ac00000	/**< PCMCIA 1 config base address */
 #define	CC_EB_PROGIF		0x1b000000	/**< ProgIF Async/Sync base address */
+
 
 /* Start/busy bit in flashcontrol */
 #define SFLASH_OPCODE		0x000000ff
@@ -1946,6 +1948,7 @@ typedef volatile struct chipcregs chipcregs_t;
 #define PMU_CC13_4387_ENAB_RADIO_REG_CLK	(1u << 9u)
 #define PMU_CC13_4387_LHL_TIMER_SELECT		(1u << 23u)
 
+
 #define PMU_CC13_4397_ENAB_RADIO_REG_CLK	(1u << 9u)
 #define PMU_CC13_4397_LHL_TIMER_SELECT		(1u << 11u)
 #define PMU_CC13_ENABLE_PCIE_RETENTION		(1 << 30)
@@ -2429,6 +2432,7 @@ typedef volatile struct chipcregs chipcregs_t;
 
 // Please leave this UNRELEASEDCHIP MOG wrapper in place even if there is nothing inside it
 
+
 #define PMU_4387_VREG1_CSR_OVERI_DIS_MASK		(1u << 22u)
 #define PMU_4387_VREG6_WL_PMU_LV_MODE_MASK		(0x00000002u)
 #define PMU_4387_VREG6_MEMLDO_PU_MASK			(0x00000008u)
@@ -2473,6 +2477,7 @@ typedef volatile struct chipcregs chipcregs_t;
 
 #define FORCE_CLK_ON                                                    1
 #define FORCE_CLK_OFF                                                   0
+
 
 /*
  * PMU VREG Definitions:
@@ -2823,7 +2828,6 @@ typedef volatile struct chipcregs chipcregs_t;
 // Please leave this UNRELEASEDCHIP MOG wrapper in place even if there is nothing inside it
 /* Based on the 4383 BackPlane Acrhitecture, RAM address base updated as 0x6E_0000 */
 #define CR4_4383_RAM_BASE                    (0x6E0000)
-#define CR4_4384_RAM_BASE                    (0x700000)
 #define CR4_4387_RAM_BASE                    (0x740000)
 #define CR4_4385_RAM_BASE                    (0x740000)
 #define CA7_4385_RAM_BASE                    (0x200000)
@@ -2831,13 +2835,6 @@ typedef volatile struct chipcregs chipcregs_t;
 #define CA7_4389_RAM_BASE                    (0x200000)
 #define CA7_4390_RAM_BASE                    (0x2A0000)
 #define CA7_4399_RAM_BASE                    (0x2A0000)
-
-/* Coex CPU memory geometry */
-#define CXCPU_4390_ITCM_BASE			(0x1a000000u)
-#define CXCPU_4390_ITCM_SIZE			(98304u)
-#define CXCPU_4390_DTCM_BASE			(0x1a018000u)
-#define CXCPU_4390_DTCM_SIZE			(24576u)
-// Please leave this UNRELEASEDCHIP MOG wrapper in place even if there is nothing inside it
 
 /* Physical memory in 4388a0 HWA is 64KB (8192 x 64 bits) even though
  * the memory space allows 192KB (0x1850_0000 - 0x1852_FFFF)
@@ -3092,6 +3089,7 @@ typedef volatile struct chipcregs chipcregs_t;
 #define CC_GCI_CHIPCTRL_29_WLSC_ANT1_5G_RFEM_DISABLE_MASK (1u <<\
 				CC_GCI_CHIPCTRL_29_WLSC_ANT1_5G_RFEM_DISABLE_NBIT)
 
+
 #define CC_GCI_CHIPCTRL_23_MAIN_WLSC_PRISEL_FORCE_NBIT		16u
 #define CC_GCI_CHIPCTRL_23_MAIN_WLSC_PRISEL_VAL_NBIT		17u
 #define CC_GCI_CHIPCTRL_23_AUX_WLSC_PRISEL_FORCE_NBIT		18u
@@ -3288,6 +3286,7 @@ typedef volatile struct chipcregs chipcregs_t;
 #define CC_GCI_RESET_OVERRIDE_MASK	(0x1u << \
 				CC_GCI_RESET_OVERRIDE_NBIT)
 
+
 /*	2G core0/core1  register (offset : 0x81C) */
 /*
 cncb2rdig_scan2G_dedicated_path_en_core0_ovr	10
@@ -3308,6 +3307,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define CC_GCI_dedicated_path_en_core1_ovr_en_NBIT (13u)
 #define CC_GCI_dedicated_path_en_core1_ovr_en_MASK (1u <<\
 		CC_GCI_dedicated_path_en_core1_ovr_en_NBIT)
+
 
 #define CC_GCI_06_JTAG_SEL_SHIFT	4u
 #define CC_GCI_06_JTAG_SEL_MASK		(1u << 4u)
@@ -3462,6 +3462,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define CC_GCI_GPIO_14			(14)
 #define CC_GCI_GPIO_15			(15)
 
+
 /* indicates Invalid GPIO, e.g. when PAD GPIO doesn't map to GCI GPIO */
 #define CC_GCI_GPIO_INVALID		0xFF
 
@@ -3472,6 +3473,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define GCIPOSVAL(val, pos)  ((((uint32)val) << pos) & GCIMASK(pos))
 /* Extract nibble from a given position */
 #define GCIGETNBL(val, pos)	((val >> pos) & 0xF)
+
 
 /* find the 8 bit mask given the bit position */
 #define GCIMASK_8B(pos)  (((uint32)0xFF) << pos)
@@ -3486,6 +3488,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define GCIPOSVAL_4B(val, pos)  ((((uint32)val) << pos) & GCIMASK_4B(pos))
 /* Extract nibble from a given position */
 #define GCIGETNBL_4B(val, pos)	((val >> pos) & 0xF)
+
 
 /* GCI Intstatus(Mask)/WakeMask Register bits. */
 #define GCI_INTSTATUS_RBI	(1 << 0)	/**< Rx Break Interrupt */
@@ -3631,6 +3634,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 						LHL_PWRDN2_RSRC6_DN_CN |\
 						LHL_PWRDN2_RSRC7_DN_CN)
 #define LHL_PWRDN2_CTL_MASK			(0x3F3F3F3F)
+
 
 #define LHL_FAST_WRITE_EN			(1 << 14)
 
@@ -3940,6 +3944,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define LTECX_MUX_MODE_WCI2		0x0
 #define LTECX_MUX_MODE_GPIO		0x1
 
+
 /* LTECX GPIO Information Index */
 #define LTECX_NVRAM_FSYNC_IDX	0
 #define LTECX_NVRAM_LTERX_IDX	1
@@ -4169,6 +4174,7 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define CC_GCI_scan5G_dedicated_path_en_core1_ovr_en_MASK (1u <<\
 		CC_GCI_scan5G_dedicated_path_en_core1_ovr_en_NBIT)
 
+
 #ifndef BCMCHIPID
 /* Enable linker error only when BCMCHIPID is defined.
  * This is to avoid compile error in 43xx build.
@@ -4232,21 +4238,19 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 	((((value) >> CTRL_FIELD_SHIFT(regtype, name, slice)) & \
 	 CTRL_FIELD_MASK(regtype, name, slice)) << CTRL_REG_SHIFT(regtype, name, slice))
 
-#define _SI_REG_WRITE_SLICE(si_fn, sih, regtype, name, value, slicenum) do { \
-		if (CTRL_REG_NUM_SLICES(regtype, name) > (slicenum - 1)) { \
-			si_fn(sih, CTRL_REG_NUM(regtype, name, slicenum), \
-				CTRL_REG_MASK(regtype, name, slicenum), \
-				CTRL_WR_VALUE(regtype, name, value, slicenum)); \
-		} \
-	} while (0)
+#define _SI_REG_WRITE_SLICE(si_fn, sih, regtype, name, value, slicenum) \
+	if (CTRL_REG_NUM_SLICES(regtype, name) > (slicenum - 1)) { \
+		si_fn(sih, CTRL_REG_NUM(regtype, name, slicenum), \
+			CTRL_REG_MASK(regtype, name, slicenum), \
+			CTRL_WR_VALUE(regtype, name, value, slicenum)); \
+	} \
 
-#define _SI_REG_MOD_SLICE(si_fn, sih, regtype, name, mask, value, slicenum)  do { \
-		if (CTRL_REG_NUM_SLICES(regtype, name) > (slicenum - 1)) { \
-			si_fn(sih, CTRL_REG_NUM(regtype, name, slicenum), \
-				CTRL_WR_VALUE(regtype, name, mask, slicenum), \
-				CTRL_WR_VALUE(regtype, name, value, slicenum)); \
-		} \
-	} while (0)
+#define _SI_REG_MOD_SLICE(si_fn, sih, regtype, name, mask, value, slicenum) \
+	if (CTRL_REG_NUM_SLICES(regtype, name) > (slicenum - 1)) { \
+		si_fn(sih, CTRL_REG_NUM(regtype, name, slicenum), \
+			CTRL_WR_VALUE(regtype, name, mask, slicenum), \
+			CTRL_WR_VALUE(regtype, name, value, slicenum)); \
+	} \
 
 #define _SI_REG_READ_SLICE_FIELD(si_fn, sih, regtype, name, slice) \
 	((si_fn(sih, CTRL_REG_NUM(regtype, name, slice), 0, 0) & \
@@ -4392,15 +4396,9 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #define SI_GCI_CC_WRITE(sih, field, value) si_gci_chipcontrol_wr_api(sih, field, value)
 #define SI_GCI_CC_READ(sih, field) si_gci_chipcontrol_rd_api(sih, field)
 #else
-#define SI_GCI_CC_WRITE(sih, name, value)	{ \
-		BCM_REFERENCE(value); \
-		(void)SI_CTRLREGS_INVALID; \
-	}
-#define SI_GCI_CC_MOD(sih, name, mask, value)	{ \
-		BCM_REFERENCE(mask); \
-		BCM_REFERENCE(value); \
-		(void)SI_CTRLREGS_INVALID; \
-	}
+#define SI_GCI_CC_WRITE(sih, name, value)	{BCM_REFERENCE(value);(void)SI_CTRLREGS_INVALID;}
+#define SI_GCI_CC_MOD(sih, name, mask, value)	{BCM_REFERENCE(mask); BCM_REFERENCE(value); \
+	(void)SI_CTRLREGS_INVALID;}
 #define SI_GCI_CC_READ(sih, name)		SI_CTRLREGS_INVALID
 #endif /* BCMCHIPID */
 
@@ -4410,22 +4408,13 @@ cncb2rdig_scan2G_dedicated_path_en_core1_ovr_en	13
 #ifndef _LANGUAGE_ASSEMBLY
 extern uint16 hnd_invalid_ctrlreg(void); // Note: this function must not be defined anywhere
 #endif /* _LANGUAGE_ASSEMBLY */
-#define SI_PMU_CC_WRITE(sih, name, value)	{ \
-		BCM_REFERENCE(value); \
-		(void)SI_CTRLREGS_INVALID; \
-	}
+#define SI_PMU_CC_WRITE(sih, name, value)	{BCM_REFERENCE(value);(void)SI_CTRLREGS_INVALID;}
 #define SI_PMU_CC_READ(sih, name)		SI_CTRLREGS_INVALID
-#define SI_PMU_PLL_WRITE(sih, name, value)	{ \
-		BCM_REFERENCE(value); \
-		(void)SI_CTRLREGS_INVALID; \
-	}
+#define SI_PMU_PLL_WRITE(sih, name, value)	{BCM_REFERENCE(value);(void)SI_CTRLREGS_INVALID;}
 #define SI_PMU_PLL_READ(sih, name)		SI_CTRLREGS_INVALID
 #define SI_GCI_CC_READ64(sih, name)		SI_CTRLREGS_INVALID
 #define SI_GCI_CS_READ(sih, name)               SI_CTRLREGS_INVALID
-#define SI_VREG_WRITE(sih, name, value)		{ \
-		BCM_REFERENCE(value); \
-		(void)SI_CTRLREGS_INVALID; \
-	}
+#define SI_VREG_WRITE(sih, name, value)		{BCM_REFERENCE(value);(void)SI_CTRLREGS_INVALID;}
 #define SI_VREG_READ(sih, name)			SI_CTRLREGS_INVALID
 #endif /* VLSI_CTRL_REGS */
 

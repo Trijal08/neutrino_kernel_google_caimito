@@ -7,11 +7,7 @@
 #ifndef MAX77759_USECASE_H_
 #define MAX77759_USECASE_H_
 
-#define MAX77759_USECASE_VOTER				"USECASE"
-#define MAX77759_USECASE_WLC_CHARGE_DISABLE_INLIM_LIMIT 200000
-
 struct max77759_usecase_data {
-	int to_uc;		/* usecase to transition to */
 	int is_a1;
 
 	int bst_on;		/* ext boost */
@@ -33,7 +29,6 @@ struct max77759_usecase_data {
 	int lsw1_is_closed;	/* MAX20339 STATUS2.lsw1closed */
 	int ls1_en;		/* MAX20339 close LSW1 directly */
 
-	bool chgr_on;		/* charge enabled/disabled on current usecase */
 	int wlc_en;		/* wlcrx/chgin coex */
 	int wlc_vbus_en;	/* b/202526678 */
 	int ext_bst_mode;	/* wlcrx+otg: b/175706836, TPS61372 P1.1+ */
@@ -94,8 +89,6 @@ enum wlc_state_t {
 };
 
 extern int gs101_wlc_en(struct max77759_usecase_data *uc_data, enum wlc_state_t state);
-extern int gs101_wlc_en_with_defender_reason(struct max77759_usecase_data *uc_data,
-			enum wlc_state_t state, bool defender_enabled);
 extern int gs101_to_standby(struct max77759_usecase_data *uc_data, int use_case);
 extern int gs101_to_usecase(struct max77759_usecase_data *uc_data, int use_case);
 extern int gs101_force_standby(struct max77759_usecase_data *uc_data);

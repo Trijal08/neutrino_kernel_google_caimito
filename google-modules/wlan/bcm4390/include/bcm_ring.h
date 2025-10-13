@@ -138,6 +138,7 @@ typedef struct bcm_ring {     /* Ring context */
 	int read  __ring_aligned; /* READ index in a circular ring */
 } bcm_ring_t;
 
+
 static INLINE void bcm_ring_init(bcm_ring_t *ring);
 static INLINE void bcm_ring_copy(bcm_ring_t *to, bcm_ring_t *from);
 static INLINE bool bcm_ring_is_empty(const bcm_ring_t *ring);
@@ -165,6 +166,7 @@ static INLINE int  bcm_ring_prod_avail(const bcm_ring_t *ring,
 static INLINE int  bcm_ring_cons_avail(const bcm_ring_t *ring,
                                        const int ring_size);
 static INLINE void bcm_ring_cons_all(bcm_ring_t *ring);
+
 
 /**
  * bcm_ring_init - initialize a ring context.
@@ -208,6 +210,7 @@ bcm_ring_is_empty(const bcm_ring_t *ring)
 	return (ring->read == ring->write);
 }
 
+
 /**
  * __bcm_ring_next_write - determine the index where the next write may occur
  *                         (with wrap-around).
@@ -223,6 +226,7 @@ __bcm_ring_next_write(const bcm_ring_t *ring, const int ring_size)
 	return ((ring->write + 1) % ring_size);
 }
 
+
 /**
  * __bcm_ring_full - support function for ring full test.
  * @ring: pointer to a ring context
@@ -235,6 +239,7 @@ __bcm_ring_full(const bcm_ring_t *ring, int next_write)
 {
 	return (next_write == ring->read);
 }
+
 
 /**
  * bcm_ring_is_full - "Boolean" test whether a ring is full.
@@ -252,6 +257,7 @@ bcm_ring_is_full(bcm_ring_t *ring, const int ring_size)
 	return __bcm_ring_full(ring, next_write);
 }
 
+
 /**
  * bcm_ring_prod_done - commit a previously pending index where production
  * was requested.
@@ -265,6 +271,7 @@ bcm_ring_prod_done(bcm_ring_t *ring, int write)
 	RING_ASSERT(BCM_RING_IS_VALID(ring));
 	ring->write = write;
 }
+
 
 /**
  * bcm_ring_prod_pend - Fetch in "pend" mode, the index where an element may be
@@ -289,6 +296,7 @@ bcm_ring_prod_pend(const bcm_ring_t *ring, int *pend_write, const int ring_size)
 	return rtn;
 }
 
+
 /**
  * bcm_ring_prod - Fetch and "commit" the next index where a ring element may
  * be produced.
@@ -311,6 +319,7 @@ bcm_ring_prod(bcm_ring_t *ring, const int ring_size)
 	return prod_write;
 }
 
+
 /**
  * bcm_ring_cons_done - commit a previously pending read
  * @ring: pointer to a ring context
@@ -322,6 +331,7 @@ bcm_ring_cons_done(bcm_ring_t *ring, int read)
 	RING_ASSERT(BCM_RING_IS_VALID(ring));
 	ring->read = read;
 }
+
 
 /**
  * bcm_ring_cons_pend - fetch in "pend" mode, the next index where a ring
@@ -346,6 +356,7 @@ bcm_ring_cons_pend(const bcm_ring_t *ring, int *pend_read, const int ring_size)
 	return rtn;
 }
 
+
 /**
  * bcm_ring_cons - fetch and "commit" the next index where a ring element may
  * be consumed.
@@ -366,6 +377,7 @@ bcm_ring_cons(bcm_ring_t *ring, const int ring_size)
 	return cons_read;
 }
 
+
 /**
  * bcm_ring_sync_read - on consumption, update peer's read index.
  * @peer: pointer to peer's producer ring context
@@ -379,6 +391,7 @@ bcm_ring_sync_read(bcm_ring_t *peer, const bcm_ring_t *self)
 	peer->read = self->read; /* flush read update to peer producer */
 }
 
+
 /**
  * bcm_ring_sync_write - on consumption, update peer's write index.
  * @peer: pointer to peer's consumer ring context
@@ -391,6 +404,7 @@ bcm_ring_sync_write(bcm_ring_t *peer, const bcm_ring_t *self)
 	RING_ASSERT(BCM_RING_IS_VALID(self));
 	peer->write = self->write; /* flush write update to peer consumer */
 }
+
 
 /**
  * bcm_ring_prod_avail - fetch total number of available empty slots in the
@@ -411,6 +425,7 @@ bcm_ring_prod_avail(const bcm_ring_t *ring, const int ring_size)
 	ASSERT(prod_avail < ring_size);
 	return prod_avail;
 }
+
 
 /**
  * bcm_ring_cons_avail - fetch total number of available elements for consumption.
@@ -433,6 +448,7 @@ bcm_ring_cons_avail(const bcm_ring_t *ring, const int ring_size)
 	return cons_avail;
 }
 
+
 /**
  * bcm_ring_cons_all - set ring in state where all elements are consumed.
  * @ring: pointer to a ring context
@@ -442,6 +458,7 @@ bcm_ring_cons_all(bcm_ring_t *ring)
 {
 	ring->read = ring->write;
 }
+
 
 /**
  * Work Queue
@@ -458,6 +475,7 @@ struct bcm_workq {
 } __ring_aligned;
 
 typedef struct bcm_workq bcm_workq_t;
+
 
 /* #define BCM_WORKQ_DEBUG */
 #if defined(BCM_WORKQ_DEBUG)
@@ -483,6 +501,7 @@ typedef struct bcm_workq bcm_workq_t;
 	WORKQ_ASSERT((__index) < ((__workq)->ring_size)); \
 	((__elem_type *)((__workq)->buffer)) + (__index); \
 })
+
 
 static INLINE void bcm_workq_init(bcm_workq_t *workq, bcm_workq_t *workq_peer,
                                   void *buffer, int ring_size);
@@ -556,6 +575,7 @@ bcm_workq_cons_sync(bcm_workq_t *workq_cons)
 	bcm_ring_sync_read(WORKQ_PEER_RING(workq_cons), WORKQ_RING(workq_cons));
 }
 
+
 /**
  * bcm_workq_prod_refresh - Fetch the updated consumer's read index
  * @workq_prod: producer's workq whose read index must be refreshed from peer
@@ -581,5 +601,6 @@ bcm_workq_cons_refresh(bcm_workq_t *workq_cons)
 	/* cons::write <--- prod::write */
 	bcm_ring_sync_write(WORKQ_RING(workq_cons), WORKQ_PEER_RING(workq_cons));
 }
+
 
 #endif /* ! __bcm_ring_h_included__ */

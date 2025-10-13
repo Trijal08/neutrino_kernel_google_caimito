@@ -1180,17 +1180,6 @@ int lwis_transaction_event_trigger(struct lwis_client *client, int64_t event_id,
 				continue;
 			}
 
-			if (transaction->resp->error_code) {
-				ret = add_transaction_to_queue_locked(client, transaction);
-				if (ret) {
-					spin_unlock_irqrestore(&client->transaction_lock, flags);
-					return ret;
-				}
-				hash_del(&transaction->pending_map_node);
-				list_del(&transaction->event_list_node);
-				continue;
-			}
-
 			if (lwis_event_triggered_condition_ready(transaction, weak_transaction,
 								 event_id, event_counter)) {
 				lwis_debug_dev_info(
@@ -1200,7 +1189,7 @@ int lwis_transaction_event_trigger(struct lwis_client *client, int64_t event_id,
 				hash_del(&transaction->pending_map_node);
 				defer_transaction_locked(client, transaction, pending_events,
 							 &pending_fences,
-							 /* del_event_list_node */ true, &flags);
+							 /* del_event_list_node */ false, &flags);
 			}
 			continue;
 		}

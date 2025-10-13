@@ -5508,10 +5508,7 @@ static void exynos_pcie_wait_cfg_access_work(struct work_struct *work)
 	}
 
 	exynos_pcie_rc_dump_all_status(exynos_pcie->ch_num);
-	exynos_pcie->cpl_timeout_recovery = 1;
-	exynos_pcie->state = STATE_LINK_DOWN_TRY;
-	queue_work(exynos_pcie->pcie_wq,
-			&exynos_pcie->cpl_timeout_work.work);
+	BUG_ON(1);
 }
 
 static int exynos_pcie_rc_probe(struct platform_device *pdev)

@@ -13,7 +13,6 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-#include <gcip/gcip-firmware.h>
 #include <gcip/gcip-memory.h>
 
 #include "gxp-config.h"
@@ -251,31 +250,6 @@ enum gxp_segment_type {
 	TRAX = 13,
 } __packed;
 
-enum gxp_etf_mode {
-	/*
-	 * In this mode, the trace memory is used as a Circular Buffer. Trace data
-	 * is captured into the Trace memory starting from the location pointed by
-	 * the write pointer register. Even when the trace memory is full,
-	 * incoming trace data continues to be overwritten into the trace memory
-	 * until a stop condition has occurred.
-	 */
-	CIRCULAR_BUFFER_MODE,
-	/*
-	 * In this mode, the trace memory is used as a FIFO that can be read through
-	 * the RRD Register while trace is being captured. Trace data is captured
-	 * into the Trace RAM and when full, the incoming trace stream is stalled.
-	 */
-	SOFTWARE_FIFO_MODE,
-	/*
-	 * In this mode, the trace memory is used as a FIFO that is drained through
-	 * the ATB interface. Trace data is captured into the Trace RAM and
-	 * when full, the incoming trace stream is stalled. When the Trace buffer is
-	 * non-empty, trace data is drained out through the ATB interface.
-	 */
-	HARDWARE_FIFO_MODE,
-	MAX_ETF_MODE,
-};
-
 struct gxp_seg_header {
 	/* Name of data type */
 	enum gxp_segment_type type;
@@ -469,8 +443,7 @@ void gxp_debug_dump_process_dump_mcu_mode(struct gxp_dev *gxp, uint *core_list);
 /**
  * gxp_debug_dump_report_mcu_crash() - Reports the SSCD module about the MCU crash.
  * @gxp: The GXP device to obtain the handler for
- * @crash_type: The crash type of the MCU firmware
  */
-void gxp_debug_dump_report_mcu_crash(struct gxp_dev *gxp, enum gcip_fw_crash_type crash_type);
+void gxp_debug_dump_report_mcu_crash(struct gxp_dev *gxp);
 
 #endif /* __GXP_DEBUG_DUMP_H__ */

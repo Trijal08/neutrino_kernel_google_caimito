@@ -1686,6 +1686,7 @@ exit:
 	return err;
 }
 
+
 #ifdef GSCAN_SUPPORT
 
 static int
@@ -1878,6 +1879,7 @@ dhd_wait_batch_results_complete(dhd_pub_t *dhd)
 	return err;
 }
 
+
 int
 dhd_pno_set_cfg_gscan(dhd_pub_t *dhd, dhd_pno_gscan_cmd_cfg_t type,
     void *buf, bool flush)
@@ -2037,6 +2039,7 @@ exit:
 	return err;
 
 }
+
 
 static bool
 validate_gscan_params(struct dhd_pno_gscan_params *gscan_params)
@@ -3133,6 +3136,9 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 	uint16 fwstatus = PFN_INCOMPLETE;
 	uint16 fwcount;
 
+	NULL_CHECK(dhd, "dhd is NULL", err);
+	NULL_CHECK(dhd->pno_state, "pno_state is NULL", err);
+
 	/* The static asserts below guarantee the v1 and v2 net_info and subnet_info
 	 * structures are compatible in size and SSID offset, allowing v1 to be safely
 	 * used in the code below except for lscanresults fields themselves
@@ -3141,9 +3147,6 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 	STATIC_ASSERT(sizeof(wl_pfn_net_info_v1_t) == sizeof(wl_pfn_net_info_v2_t));
 	STATIC_ASSERT(sizeof(wl_pfn_lnet_info_v1_t) == sizeof(wl_pfn_lnet_info_v2_t));
 	STATIC_ASSERT(sizeof(wl_pfn_subnet_info_v1_t) == sizeof(wl_pfn_subnet_info_v2_t));
-
-	NULL_CHECK(dhd, "dhd is NULL", err);
-	NULL_CHECK(dhd->pno_state, "pno_state is NULL", err);
 
 	DHD_PNO(("%s enter\n", __FUNCTION__));
 	_pno_state = PNO_GET_PNOSTATE(dhd);
@@ -4350,6 +4353,7 @@ dhd_handle_hotlist_scan_evt(dhd_pub_t *dhd, const void *event_data,
 	struct timespec64 tm_spec;
 	uint16 fwstatus;
 	uint16 fwcount;
+
 
 	/* Static asserts in _dhd_pno_get_for_batch() above guarantee the v1 and v2
 	 * net_info and subnet_info structures are compatible in size and SSID offset,

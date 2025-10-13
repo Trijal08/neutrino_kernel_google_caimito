@@ -270,11 +270,11 @@ static void dp_fill_host_caps(struct dp_device *dp)
 	dp->host.ssc = dp_ssc;
 }
 
-static bool dp_fec_init(struct dp_device *dp)
+static bool dp_check_fec_caps(struct dp_device *dp, u8 fec_dpcd)
 {
 	u8 fec_data;
 
-	if (!dp_get_fec(dp))
+	if (!drm_dp_sink_supports_fec(fec_dpcd) || !dp->host.fec)
 		return false;
 
 	fec_data = DP_FEC_DECODE_EN_DETECTED | DP_FEC_DECODE_DIS_DETECTED;
@@ -318,9 +318,8 @@ static void dp_fill_sink_caps(struct dp_device *dp, u8 dpcd[DP_RECEIVER_CAP_SIZE
 
 	/* Set FEC support */
 	if (drm_dp_dpcd_readb(&dp->dp_aux, DP_FEC_CAPABILITY, &fec_dpcd) == 1) {
-		dp->sink.fec = drm_dp_sink_supports_fec(fec_dpcd);
+		dp->sink.fec = dp_check_fec_caps(dp, fec_dpcd);
 	} else {
-		dp->sink.fec = false;
 		dp->stats.dpcd_read_failures++;
 		dp_warn(dp, "DP Sink: failed to read FEC support register\n");
 	}
@@ -330,7 +329,6 @@ static void dp_fill_sink_caps(struct dp_device *dp, u8 dpcd[DP_RECEIVER_CAP_SIZE
 			sizeof(dsc_dpcd)) {
 		dp->sink.dsc = !!dsc_dpcd[0];
 	} else {
-		dp->sink.dsc = false;
 		dp->stats.dpcd_read_failures++;
 		dp_warn(dp, "DP Sink: failed to read DSC support registers\n");
 	}
@@ -1099,10 +1097,6 @@ static int dp_link_up(struct dp_device *dp)
 	dp->link.ssc = dp_get_ssc(dp);
 	dp->link.support_tps = dp_get_supported_pattern(dp);
 	dp->link.fast_training = dp_get_fast_training(dp);
-
-	/* FEC init */
-	dp->link.fec = dp_fec_init(dp);
-
 	dp_info(dp, "DP Link: training start: Rate(%d Mbps) Lanes(%u) EF(%d) SSC(%d) FEC(%d)\n",
 		dp->link.link_rate / 100, dp->link.num_lanes, dp->link.enhanced_frame,
 		dp->link.ssc, dp->link.fec);
@@ -1316,15 +1310,9 @@ static int dp_set_audio_infoframe(struct dp_device *dp)
 	return 0;
 }
 
-/*
- * Add one frame buffer time for the mode switch
- */
-#define MIN_MODE_SWITCH_INTERVAL_US 20000
-
 static void dp_enable(struct drm_encoder *encoder)
 {
 	struct dp_device *dp = encoder_to_dp(encoder);
-	s64 delta_us;
 
 	if (dp->restart_pending) {
 		dp_debug(dp, "%s: ignored, because of restart_pending", __func__);
@@ -1333,13 +1321,6 @@ static void dp_enable(struct drm_encoder *encoder)
 
 	mutex_lock(&dp->cmd_lock);
 
-	if (dp->is_mode_changed && dp->last_disable_ts != 0) {
-		delta_us = ktime_us_delta(ktime_get(), dp->last_disable_ts);
-		if (delta_us < MIN_MODE_SWITCH_INTERVAL_US)
-			udelay(MIN_MODE_SWITCH_INTERVAL_US - delta_us);
-	}
-
-	dp->is_mode_changed = false;
 	dp->hw_config.bpc = dp_get_bpc(dp);
 	dp->hw_config.range = VESA_RANGE;
 	dp_set_video_timing(dp);
@@ -1411,8 +1392,6 @@ static void dp_disable(struct drm_encoder *encoder)
 
 		dp->state = DP_STATE_ON;
 		dp_info(dp, "%s: DP State changed to ON\n", __func__);
-
-		dp->last_disable_ts = ktime_get();
 	} else
 		dp_info(dp, "%s: DP State is not RUN\n", __func__);
 
@@ -2501,7 +2480,6 @@ static void dp_atomic_mode_set(struct drm_encoder *encoder,
 
 	if (!drm_mode_equal(&dp->cur_mode, adjusted_mode)) {
 		drm_mode_copy(&dp->cur_mode, adjusted_mode);
-		dp->is_mode_changed = true;
 	}
 }
 
@@ -3416,7 +3394,6 @@ static int dp_probe(struct platform_device *pdev)
 	/* Driver Initialization */
 	dp_drvdata = dp;
 	dp_init_info(dp);
-	dp->is_mode_changed = false;
 
 	dma_set_mask(dev, DMA_BIT_MASK(32));
 

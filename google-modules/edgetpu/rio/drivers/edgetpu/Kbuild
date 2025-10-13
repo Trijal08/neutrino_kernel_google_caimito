@@ -6,9 +6,11 @@
 
 # Use the absolute path of this Makefile to get the source directory.
 CURRENT_DIR=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+# TODO(b/336717718): Remove include path of embedded IIF
 ccflags-y	+= $(EXTRA_CFLAGS) -DCONFIG_GCIP=1 \
 		   -I$(CURRENT_DIR)/include \
-		   -I$(CURRENT_DIR)/gcip-kernel-driver/include
+		   -I$(CURRENT_DIR)/gcip-kernel-driver/include \
+		   -I$(CURRENT_DIR)/gcip-kernel-driver/drivers/gcip/iif/include
 # Flags needed for external modules.
 ccflags-y	+= -DCONFIG_GOOGLE_BCL
 
@@ -21,6 +23,7 @@ edgetpu-objs	:= edgetpu-dmabuf.o \
 		   edgetpu-iif.o \
 		   edgetpu-ikv-additional-info.o \
 		   edgetpu-ikv-mailbox-ops.o \
+		   edgetpu-ikv.o \
 		   edgetpu-iremap-pool.o \
 		   edgetpu-mailbox.o \
 		   edgetpu-mapping.o \
@@ -38,13 +41,11 @@ rio-objs	:= rio-core.o \
 		   rio-debug.o \
 		   rio-devfreq.o \
 		   rio-device-group.o \
-		   rio-dt-mailbox-adapter.o \
 		   rio-external.o \
 		   rio-firmware.o \
 		   rio-fs.o \
-		   rio-ikv.o \
-		   rio-iommu.o \
 		   rio-kci.o \
+		   rio-iommu.o \
 		   rio-platform.o \
 		   rio-pm.o \
 		   rio-soc.o \
@@ -55,24 +56,20 @@ rio-objs	:= rio-core.o \
 %/gcip.o: FORCE
 	$(Q)$(MAKE) $(build)=$(@D) $@
 
+CFLAGS_rio-fs.o := -DCONFIG_RIO=1
 CFLAGS_rio-core.o := -DCONFIG_RIO=1
-CFLAGS_rio-debug.o := -DCONFIG_RIO=1
 CFLAGS_rio-devfreq.o := -DCONFIG_RIO=1
 CFLAGS_rio-device-group.o := -DCONFIG_RIO=1
-CFLAGS_rio-dt-mailbox-adapter.o := -DCONFIG_RIO=1
-CFLAGS_rio-external.o := -DCONFIG_RIO=1
 CFLAGS_rio-firmware.o := -DCONFIG_RIO=1
-CFLAGS_rio-fs.o := -DCONFIG_RIO=1
-CFLAGS_rio-ikv.o := -DCONFIG_RIO=1
 CFLAGS_rio-iommu.o := -DCONFIG_RIO=1
 CFLAGS_rio-kci.o := -DCONFIG_RIO=1
 CFLAGS_rio-platform.o := -DCONFIG_RIO=1
 CFLAGS_rio-pm.o := -DCONFIG_RIO=1
-CFLAGS_rio-soc.o := -DCONFIG_RIO=1
+CFLAGS_rio-debug.o := -DCONFIG_RIO=1
 CFLAGS_rio-usage-stats.o := -DCONFIG_RIO=1
 CFLAGS_rio-vii-packet.o := -DCONFIG_RIO=1
-
-
+CFLAGS_rio-external.o := -DCONFIG_RIO=1
+CFLAGS_rio-soc.o := -DCONFIG_RIO=1
 
 
 
@@ -83,15 +80,6 @@ GMODULE_SRC_PATH ?= $(KERNEL_SRC)/../private/google-modules
 
 ifneq ($(wildcard $(GMODULE_SRC_PATH)/power/mitigation),)
 ccflags-y += -I$(GMODULE_SRC_PATH)/power/mitigation
-endif
-
-# TODO(b/336717718): Remove include path of embedded IIF
-# We still need to include the embedded IIF headers even though the TPU driver itself is nothing to
-# do with the embedded IIF. Otherwise, if we are going to build the driver based on the kernel which
-# haven't enabled the standalone IIF, it will fail. We can remove it once all devices containing the
-# driver have migrated to Linux >= 6.6 which we can guarantee that the standalone IIF is enabled.
-ifneq ($(wildcard $(CURRENT_DIR)/gcip-kernel-driver/drivers/gcip/iif/include),)
-ccflags-y += -I$(CURRENT_DIR)/gcip-kernel-driver/drivers/gcip/iif/include
 endif
 
 ifneq ($(wildcard $(GMODULE_SRC_PATH)/iif/include),)

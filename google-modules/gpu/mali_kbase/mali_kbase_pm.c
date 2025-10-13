@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2010-2025 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2024 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -49,7 +49,7 @@ kbasep_pm_context_active_handle_suspend_locked(struct kbase_device *kbdev,
 					       enum kbase_pm_suspend_handler suspend_handler,
 					       bool sched_lock_held)
 {
-	int c, r;
+	int c;
 
 	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
@@ -66,12 +66,15 @@ kbasep_pm_context_active_handle_suspend_locked(struct kbase_device *kbdev,
 	/* If there is an Arbiter, wait for Arbiter to grant GPU back to KBase
 	 * so suspend request can be handled.
 	 */
-	r = kbase_arbiter_pm_ctx_active_handle_suspend(kbdev, suspend_handler, sched_lock_held);
+	if (kbase_arbiter_pm_ctx_active_handle_suspend(kbdev, suspend_handler, sched_lock_held)) {
+		ATRACE_END();
+		return 1;
+	}
 
 	if (kbase_pm_is_suspending(kbdev)) {
 		switch (suspend_handler) {
 		case KBASE_PM_SUSPEND_HANDLER_DONT_REACTIVATE:
-			if (atomic_read(&kbdev->pm.active_count) != 0)
+			if (kbdev->pm.active_count != 0)
 				break;
 			fallthrough;
 		case KBASE_PM_SUSPEND_HANDLER_DONT_INCREASE:
@@ -80,26 +83,15 @@ kbasep_pm_context_active_handle_suspend_locked(struct kbase_device *kbdev,
 
 		case KBASE_PM_SUSPEND_HANDLER_NOT_POSSIBLE:
 			fallthrough;
-		case KBASE_PM_SUSPEND_HANDLER_ALWAYS_INCREASE:
-			break;
 		default:
 			KBASE_DEBUG_ASSERT_MSG(false, "unreachable");
 			break;
 		}
 	}
-	c = atomic_inc_return(&kbdev->pm.active_count);
+	c = ++kbdev->pm.active_count;
 	KBASE_KTRACE_ADD(kbdev, PM_CONTEXT_ACTIVE, NULL, (u64)c);
 
 	if (c == 1) {
-		if (r) {
-			/* SUSPEND_HANDLER_ALWAYS_INCREASE always succeeds even without a GPU
-			 * present, as it's used to restore the active_count counter value due to
-			 * a prior failure to power down.
-			 */
-			ATRACE_END();
-			return (suspend_handler != KBASE_PM_SUSPEND_HANDLER_ALWAYS_INCREASE);
-		}
-
 		/* First context active: Power on the GPU and
 		 * any cores requested by the policy
 		 */
@@ -108,7 +100,7 @@ kbasep_pm_context_active_handle_suspend_locked(struct kbase_device *kbdev,
 		kbase_clk_rate_trace_manager_gpu_active(kbdev);
 	}
 
-	dev_dbg(kbdev->dev, "%s %d\n", __func__, atomic_read(&kbdev->pm.active_count));
+	dev_dbg(kbdev->dev, "%s %d\n", __func__, kbdev->pm.active_count);
 	ATRACE_END();
 
 	return 0;
@@ -142,14 +134,12 @@ void kbase_pm_context_idle_locked(struct kbase_device *kbdev)
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	lockdep_assert_held(&kbdev->pm.lock);
 
-	c = atomic_dec_return(&kbdev->pm.active_count);
+	c = --kbdev->pm.active_count;
 	KBASE_KTRACE_ADD(kbdev, PM_CONTEXT_IDLE, NULL, (u64)c);
 
 	KBASE_DEBUG_ASSERT(c >= 0);
 
-	if (c == 1) {
-		kbase_csf_scheduler_pm_single_refcount(kbdev);
-	} else if (c == 0) {
+	if (c == 0) {
 		/* Last context has gone idle */
 		kbase_hwaccess_pm_gpu_idle(kbdev);
 		kbase_clk_rate_trace_manager_gpu_idle(kbdev);
@@ -161,8 +151,7 @@ void kbase_pm_context_idle_locked(struct kbase_device *kbdev)
 		wake_up(&kbdev->pm.zero_active_count_wait);
 	}
 
-	dev_dbg(kbdev->dev, "%s %d (pid = %d)\n", __func__, atomic_read(&kbdev->pm.active_count),
-		current->pid);
+	dev_dbg(kbdev->dev, "%s %d (pid = %d)\n", __func__, kbdev->pm.active_count, current->pid);
 	ATRACE_END();
 }
 
@@ -247,7 +236,7 @@ int kbase_pm_driver_suspend(struct kbase_device *kbdev)
 	 */
 	dev_dbg(kbdev->dev, ">wait_event - waiting for active_count == 0 (pid = %d)\n",
 		current->pid);
-	wait_event(kbdev->pm.zero_active_count_wait, atomic_read(&kbdev->pm.active_count) == 0);
+	wait_event(kbdev->pm.zero_active_count_wait, kbdev->pm.active_count == 0);
 	dev_dbg(kbdev->dev, ">wait_event - waiting done\n");
 
 	/* At this point, any kbase context termination should either have run to

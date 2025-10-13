@@ -135,7 +135,7 @@ typedef struct dhd_map_item {
 typedef struct dhd_map_record {
 	uint32 items;		/* number of total items */
 	uint32 idx;		/* current index of metadata */
-	dhd_map_item_t map[];	/* metadata storage */
+	dhd_map_item_t map[0];	/* metadata storage */
 } dhd_map_log_t;
 
 void
@@ -1696,6 +1696,7 @@ osl_readb(osl_t *osh, volatile uint8 *r)
 	return (uint8)((rreg)(ctx, (volatile void*)r, sizeof(uint8)));
 }
 
+
 uint16
 osl_readw(osl_t *osh, volatile uint16 *r)
 {
@@ -1722,6 +1723,7 @@ osl_writeb(osl_t *osh, volatile uint8 *r, uint8 v)
 
 	((wreg)(ctx, (volatile void*)r, v, sizeof(uint8)));
 }
+
 
 void
 osl_writew(osl_t *osh, volatile uint16 *r, uint16 v)
@@ -2039,23 +2041,23 @@ osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, ulong r, uint size, bool 
 	BCM_REFERENCE(r);
 	switch (size) {
 	case sizeof(uint8):
-		*(volatile uint8 *)v = readb((volatile uint8 *)(addr));
-		if (*(volatile uint8 *)v == 0xFFu)
+		*(volatile uint8*)v = readb((volatile uint8*)(addr));
+		if (*(volatile uint8*)v == 0xFFu)
 			verify = TRUE;
 		break;
 	case sizeof(uint16):
-		*(volatile uint16 *)v = readw((volatile uint16 *)(addr));
-		if (*(volatile uint16 *)v == 0xFFFFu)
+		*(volatile uint16*)v = readw((volatile uint16*)(addr));
+		if (*(volatile uint16*)v == 0xFFFFu)
 			verify = TRUE;
 		break;
 	case sizeof(uint32):
-		*(volatile uint32 *)v = readl((volatile uint32 *)(addr));
-		if (*(volatile uint32 *)v == 0xFFFFFFFFu)
+		*(volatile uint32*)v = readl((volatile uint32*)(addr));
+		if (*(volatile uint32*)v == 0xFFFFFFFFu)
 			verify = TRUE;
 		break;
 	case sizeof(uint64):
-		*(volatile uint64 *)v = *((volatile uint64 *)(addr));
-		if (*(volatile uint64 *)v == 0xFFFFFFFFFFFFFFFFu)
+		*(volatile uint64*)v = *((volatile uint64*)(addr));
+		if (*(volatile uint64*)v == 0xFFFFFFFFFFFFFFFFu)
 			verify = TRUE;
 		break;
 	}
@@ -2172,6 +2174,16 @@ osl_timer_init(osl_t *osh, const char *name, void (*fn)(void *arg), void *arg)
 	t->arg = arg;
 	t->next = osh->timers;
 	osh->timers = t;
+
+#ifdef BCMDBG
+	{
+		int slen = 0u;
+		slen = strlen(name) + 1;
+		if ((t->name = MALLOCZ(osh, slen))) {
+			strlcpy(t->name, name, slen);
+		}
+	}
+#endif /* BCMDBG */
 	return (t);
 }
 
@@ -2316,6 +2328,7 @@ osl_timer_free(osl_t *osh, osl_timer_t *t)
 	}
 
 }
+
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
 int
@@ -2504,6 +2517,7 @@ osl_dma_lock_init(osl_t *osh)
 }
 #endif /* USE_DMA_LOCK */
 
+
 #if defined(NIC_REG_ACCESS_LEGACY) || defined(NIC_REG_ACCESS_LEGACY_DBG)
 osl_pcie_window_t osl_reg_access_pcie_window;
 /**
@@ -2627,7 +2641,7 @@ osl_get_fatal_logbuf_end(osl_t *osh, uint32 size, uint32 *alloced)
 }
 
 int
-osl_create_directory(const char *pathname, int mode)
+osl_create_directory(char *pathname, int mode)
 {
 	struct path path;
 	struct dentry *dentry;
@@ -2655,72 +2669,4 @@ exit:
 	done_path_create(&path, dentry);
 	return err ? BCME_ERROR : BCME_OK;
 }
-
-/* Returns the pid of a the userspace process running with the given name */
-struct task_struct *
-_get_task_info(const char *pname)
-{
-	struct task_struct *task;
-
-	if (!pname) {
-		return NULL;
-	}
-
-	for_each_process(task) {
-		if (strcmp(pname, task->comm) == 0) {
-			return task;
-		}
-	}
-
-	return NULL;
-}
-
-int
-osl_send_sig_info(int signo, int arg, struct task_struct *tsk)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 9)
-	struct kernel_siginfo sinfo;
-#else
-	struct siginfo sinfo;
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 9) */
-
-	bzero(&sinfo, sizeof(sinfo));
-
-	sinfo.si_signo = signo;
-	sinfo.si_code = SI_QUEUE;
-	sinfo.si_int = arg;
-
-	return send_sig_info(signo, &sinfo, tsk);
-}
-
-uint
-osl_ctx_push(osl_t *osh, void *ptr)
-{
-	BCM_REFERENCE(osh);
-	BCM_REFERENCE(ptr);
-	return 0u;
-}
-
-void
-osl_ctx_pop(osl_t *osh, uint flag)
-{
-	BCM_REFERENCE(osh);
-	BCM_REFERENCE(flag);
-}
-
-uint
-osl_ctx_copy(osl_t *osh, uintptr *out, uint sz)
-{
-	BCM_REFERENCE(osh);
-	BCM_REFERENCE(out);
-	BCM_REFERENCE(sz);
-	return 0u;
-}
-
-void
-osl_ctx_enab(osl_t *osh)
-{
-	BCM_REFERENCE(osh);
-}
-
 #endif /* NICBUILD && WL_MACDBG */

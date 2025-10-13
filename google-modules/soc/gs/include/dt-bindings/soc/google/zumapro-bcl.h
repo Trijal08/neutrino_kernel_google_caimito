@@ -55,6 +55,10 @@
 #define THERMAL_HYST_LEVEL 100
 
 /* Indexing */
+
+/* Brownout triggered source need to be sync with the UAPI header.
+ * google-modules/power/mitigation/uapi/brownout_stats.h
+ */
 #define SMPL_WARN 0
 #define OCP_WARN_CPUCL1 1
 #define OCP_WARN_CPUCL2 2
@@ -73,10 +77,7 @@
 #define PMIC_140C 15
 #define PMIC_OVERHEAT 16
 #define BATOILO BATOILO1
-#define RAMP_LVL_ZONE_1 17
-#define RAMP_LVL_ZONE_2 18
-#define RAMP_LVL_ZONE_3 19
-#define TRIGGERED_SOURCE_MAX 20
+#define TRIGGERED_SOURCE_MAX 17
 
 #define SMPL_WARN_CTRL  S2MPG14_PM_SMPL_WARN_CTRL
 #define SMPL_WARN_SHIFT  S2MPG14_SMPL_WARN_LVL_SHIFT
@@ -159,8 +160,6 @@
 #define CORE_PMIC_MAIN 0
 #define CORE_PMIC_SUB 1
 #define CORE_PMIC_MAIN_RTC 2
-#define CORE_PMIC_MAIN_I2C 3
-#define CORE_PMIC_SUB_I2C 4
 
 #define CPU0_CLUSTER_MIN 0
 #define CPU1_CLUSTER_MIN 4

@@ -65,17 +65,8 @@ struct max77759_plat {
 	bool pd_capable;
 	void *usb_psy_data;
 	struct mutex icl_proto_el_lock;
-
-	/* Indicated whether vbus alarms have been enabled  */
-	bool alarm_enabled;
-	/* If vbus alarm is enabled, whether its programmed for high or low */
-	bool alarm_high;
-	/*
-	 * Protects vbus voltage alarm flags i.e. alarm_enabled, alarm_high and
-	 * ALERT_MASK.VBUS Voltage Alarm Lo/Hi.
-	 */
-	struct mutex vbus_alarm_lock;
-
+	/* Set vbus voltage alarms */
+	bool set_voltage_alarm;
 	unsigned int vbus_mv;
 	/* USB Data notification */
 	struct extcon_dev *extcon;
@@ -120,12 +111,6 @@ struct max77759_plat {
 	int frs;
 	bool in_frs;
 	bool vsafe0v;
-
-	/*
-	 * Guards vsafe0v so that consistent values are viewed across different
-	 * execution context.
-	 */
-	struct mutex vsafe0v_lock;
 
 	/*
 	 * Current status of contaminant detection.

@@ -15,21 +15,17 @@
 #include "google_bms.h"
 #include "max77779.h"
 #include "max77779_charger.h"
-#include "misc/gvotable.h"
 
 static int gs201_otg_enable(struct max77779_usecase_data *uc_data, bool enable);
 /* ----------------------------------------------------------------------- */
 
-int gs201_wlc_en_with_defender_reason(struct max77779_usecase_data *uc_data,
-	enum wlc_state_t state, bool defender_enabled)
+int gs201_wlc_en(struct max77779_usecase_data *uc_data, enum wlc_state_t state)
 {
 	const int wlc_on = state == WLC_ENABLED;
 	int ret;
-	struct gvotable_election *wlc_defender_enabled_votable = NULL;
-	const bool defender_enabled_vote = (state == WLC_DISABLED) && defender_enabled;
 
-	pr_debug("%s: wlc_en=%d wlc_on=%d wlc_state=%d def_en %d\n", __func__,
-		 uc_data->wlc_en, wlc_on, state, defender_enabled);
+	pr_debug("%s: wlc_en=%d wlc_on=%d wlc_state=%d\n", __func__,
+		 uc_data->wlc_en, wlc_on, state);
 
 	if (uc_data->wlc_en < 0)
 		return 0;
@@ -43,21 +39,9 @@ int gs201_wlc_en_with_defender_reason(struct max77779_usecase_data *uc_data,
 
 	gpio_set_value_cansleep(uc_data->wlc_spoof_gpio,
 				state == WLC_SPOOFED && uc_data->wlc_spoof_gpio);
-
-	wlc_defender_enabled_votable = gvotable_election_get_handle(WLC_DEFENDER_VOTABLE);
-	if (wlc_defender_enabled_votable) {
-		ret = gvotable_cast_bool_vote(wlc_defender_enabled_votable,
-				DEFENDER_ENABLED_VOTER, defender_enabled_vote);
-		pr_debug("%s: casted %s defender_enabled_vote %d ret %d\n",
-			__func__, DEFENDER_ENABLED_VOTER, defender_enabled_vote, ret);
-	}
 	gpio_set_value_cansleep(uc_data->wlc_en, wlc_on);
-	return 0;
-}
 
-int gs201_wlc_en(struct max77779_usecase_data *uc_data, enum wlc_state_t state)
-{
-	return gs201_wlc_en_with_defender_reason(uc_data, state, false);
+	return 0;
 }
 
 /* RTX reverse wireless charging */

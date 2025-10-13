@@ -110,10 +110,9 @@ enum bcl_usb_mode {
 
 #define VOLTAGE_ALARM_HI_EN_MV		3000
 #define VOLTAGE_ALARM_HI_DIS_MV		21000
-#define VOLTAGE_ALARM_LOW_EN_MV		800
+#define VOLTAGE_ALARM_LOW_EN_MV		1500
 #define VOLTAGE_ALARM_LOW_DIS_MV	0
 #define VBUS_PRESENT_THRESHOLD_MV	4000
-#define VSAFE0V_THRESHOLD_MV		800
 
 #define TCPC_ALERT_VENDOR		BIT(15)
 
@@ -790,13 +789,10 @@ static struct max77759_plat *tdata_to_max77759(struct google_shim_tcpci_data *td
 	return container_of(tdata, struct max77759_plat, data);
 }
 
-static void max77759_init_regs(struct max77759_plat *chip, bool setup)
+static void max77759_init_regs(struct regmap *regmap, struct logbuffer *log)
 {
 	u16 alert_mask = 0;
 	int ret;
-	u8 power_ctrl;
-	struct regmap *regmap = chip->data.regmap;
-	struct logbuffer *log = chip->log;
 
 	ret = max77759_write16(regmap, TCPC_ALERT, 0xffff);
 	if (ret < 0)
@@ -829,42 +825,22 @@ static void max77759_init_regs(struct max77759_plat *chip, bool setup)
 		/* Enable Extended alert for detecting Fast Role Swap Signal */
 		TCPC_ALERT_EXTND;
 
-	mutex_lock(&chip->vbus_alarm_lock);
-	if (chip->alarm_enabled)
-		alert_mask |= chip->alarm_high ? TCPC_ALERT_V_ALARM_HI : TCPC_ALERT_V_ALARM_LO;
-
 	ret = max77759_write16(regmap, TCPC_ALERT_MASK, alert_mask);
-	if (ret < 0) {
-		mutex_unlock(&chip->vbus_alarm_lock);
+	if (ret < 0)
 		return;
-	}
-	mutex_unlock(&chip->vbus_alarm_lock);
 	LOG(LOG_LVL_DEBUG, log, "[%s] Init ALERT_MASK: %u", __func__, alert_mask);
 
 	max77759_read16(regmap, TCPC_ALERT_MASK, &alert_mask);
 	LOG(LOG_LVL_DEBUG, log, "[%s] Init ALERT_MASK read : %u", __func__, alert_mask);
 
-	if (setup)
-		/*
-		 * Enable vbus voltage monitoring, voltage alerts, bleed discharge and
-		 * disable autodischarge
-		 */
-		ret = max77759_update_bits8(regmap, TCPC_POWER_CTRL, TCPC_POWER_CTRL_VBUS_VOLT_MON |
-					    TCPC_DIS_VOLT_ALRM | TCPC_POWER_CTRL_BLEED_DISCHARGE |
-					    TCPC_POWER_CTRL_AUTO_DISCHARGE,
-					    TCPC_POWER_CTRL_BLEED_DISCHARGE);
-	else
-		/* Enable vbus voltage monitoring, voltage alerts, bleed discharge */
-		ret = max77759_update_bits8(regmap, TCPC_POWER_CTRL, TCPC_POWER_CTRL_VBUS_VOLT_MON |
-					    TCPC_DIS_VOLT_ALRM | TCPC_POWER_CTRL_BLEED_DISCHARGE,
-					    TCPC_POWER_CTRL_BLEED_DISCHARGE);
+	/* Enable vbus voltage monitoring, voltage alerts, bleed discharge */
+	ret = max77759_update_bits8(regmap, TCPC_POWER_CTRL, TCPC_POWER_CTRL_VBUS_VOLT_MON |
+				    TCPC_DIS_VOLT_ALRM | TCPC_POWER_CTRL_BLEED_DISCHARGE,
+				    TCPC_POWER_CTRL_BLEED_DISCHARGE);
 	if (ret < 0)
 		return;
 	LOG(LOG_LVL_DEBUG, log,
 	    "TCPC_POWER_CTRL: Enable voltage monitoring, alarm, bleed discharge");
-
-	max77759_read8(regmap, TCPC_POWER_CTRL, &power_ctrl);
-	LOG(LOG_LVL_DEBUG, log, "[%s] Init POWER_CONTROL read : %u", __func__, power_ctrl);
 
 	ret = max77759_write8(regmap, TCPC_ALERT_EXTENDED_MASK, TCPC_SINK_FAST_ROLE_SWAP);
 	if (ret < 0) {
@@ -1119,7 +1095,6 @@ void enable_data_path_locked(struct max77759_plat *chip)
 	if (chip->attached && enable_data && !chip->data_active) {
 		/* Disable BC1.2 to prevent BC1.2 detection during PR_SWAP */
 		bc12_enable(chip->bc12, false);
-
 		/*
 		 * Clear running flag here as PD might have configured data
 		 * before BC12 started to run.
@@ -1351,31 +1326,6 @@ static void max77759_frs_sourcing_vbus(struct google_shim_tcpci *tcpci,
 	usb_psy_set_sink_state(chip->usb_psy_data, false);
 }
 
-static bool max777x9_check_vbus_vsafe0v(struct max77759_plat *chip)
-{
-	int ret;
-	u8 reg;
-	int vbus_mv;
-	bool vsafe0v;
-
-	ret = max77759_read8(chip->data.regmap, TCPC_EXTENDED_STATUS, &reg);
-	if (ret < 0) {
-		LOG(LOG_LVL_DEBUG, chip->log, "[%s]: Unable to fetch power status, ret=%d\n",
-		    __func__, ret);
-		return false;
-	}
-
-	if (!(reg & TCPC_EXTENDED_STATUS_VSAFE0V)) {
-		vbus_mv = max77759_get_vbus_voltage_mv(chip->client);
-		vsafe0v = vbus_mv <= VSAFE0V_THRESHOLD_MV;
-	} else {
-		vsafe0v = true;
-	}
-
-	LOG(LOG_LVL_DEBUG, chip->log, "[%s]: live vsafe0v:%c", __func__, vsafe0v ? 'Y' : 'N');
-	return vsafe0v;
-}
-
 static void vsafe0v_debounce_work(struct kthread_work *work)
 {
 	struct max77759_plat *chip  =
@@ -1383,21 +1333,16 @@ static void vsafe0v_debounce_work(struct kthread_work *work)
 			     struct max77759_plat, vsafe0v_work);
 	struct google_shim_tcpci *tcpci = chip->tcpci;
 
-	mutex_lock(&chip->vsafe0v_lock);
-	chip->vsafe0v = max777x9_check_vbus_vsafe0v(chip);
 	/* update to TCPM only if it is still Vsafe0V */
-	if (!chip->vsafe0v) {
-		mutex_unlock(&chip->vsafe0v_lock);
+	if (!chip->vsafe0v)
 		return;
-	}
 
 	chip->vbus_present = 0;
-	mutex_unlock(&chip->vsafe0v_lock);
 	LOG(LOG_LVL_DEBUG, chip->log, "[%s]: vsafe0v debounced, vbus_present 0", __func__);
 	tcpm_vbus_change(tcpci->port);
 }
 
-static void disconnect_missing_rp_partner(struct max77759_plat *chip)
+void disconnect_missing_rp_partner(struct max77759_plat *chip)
 {
 	union power_supply_propval val;
 	int ret;
@@ -1417,10 +1362,8 @@ static void disconnect_missing_rp_partner(struct max77759_plat *chip)
 	if (ret < 0)
 		LOG(LOG_LVL_DEBUG, chip->log,
 		    "unable to set max voltage to %d, ret=%d", chip->vbus_mv, ret);
-	mutex_lock(&chip->bc12->lock);
 	if (power_supply_set_property(chip->usb_psy, POWER_SUPPLY_PROP_USB_TYPE, &val))
 		LOG(LOG_LVL_DEBUG, chip->log, "missing_rp: usb_psy set unknown failed");
-	mutex_unlock(&chip->bc12->lock);
 	usb_psy_set_sink_state(chip->usb_psy_data, false);
 }
 
@@ -1479,10 +1422,8 @@ static void check_missing_rp_work(struct kthread_work *work)
 		/* Assume DCP for missing Rp non-compliant power source */
 		val.intval = POWER_SUPPLY_USB_TYPE_DCP;
 		max77759_set_vbus(chip->tcpci, chip->tcpci->data, false, true);
-		mutex_lock(&chip->bc12->lock);
 		if (power_supply_set_property(chip->usb_psy, POWER_SUPPLY_PROP_USB_TYPE, &val))
 			LOG(LOG_LVL_DEBUG, chip->log, "%s: usb_psy set dcp failed", __func__);
-		mutex_unlock(&chip->bc12->lock);
 		chip->vbus_mv = 5000;
 		val.intval = chip->vbus_mv * 1000;
 		ret = power_supply_set_property(chip->usb_psy, POWER_SUPPLY_PROP_VOLTAGE_MAX, &val);
@@ -1582,7 +1523,7 @@ static void process_power_status(struct max77759_plat *chip)
 		return;
 
 	if (pwr_status == 0xff) {
-		max77759_init_regs(chip, false);
+		max77759_init_regs(tcpci->regmap, log);
 		return;
 	}
 
@@ -1683,37 +1624,36 @@ static void process_power_status(struct max77759_plat *chip)
 	}
 }
 
-static void process_tx(struct max77759_plat *chip, u16 status)
+static void process_tx(struct google_shim_tcpci *tcpci, u16 status, struct logbuffer *log)
 {
 	if (status & TCPC_ALERT_TX_SUCCESS) {
-		LOG(LOG_LVL_DEBUG, chip->log, "TCPC_ALERT_TX_SUCCESS");
-		tcpm_pd_transmit_complete(chip->tcpci->port, TCPC_TX_SUCCESS);
+		LOG(LOG_LVL_DEBUG, log, "TCPC_ALERT_TX_SUCCESS");
+		tcpm_pd_transmit_complete(tcpci->port, TCPC_TX_SUCCESS);
 	} else if (status & TCPC_ALERT_TX_DISCARDED) {
-		LOG(LOG_LVL_DEBUG, chip->log, "TCPC_ALERT_TX_DISCARDED");
-		tcpm_pd_transmit_complete(chip->tcpci->port, TCPC_TX_DISCARDED);
+		LOG(LOG_LVL_DEBUG, log, "TCPC_ALERT_TX_DISCARDED");
+		tcpm_pd_transmit_complete(tcpci->port, TCPC_TX_DISCARDED);
 	} else if (status & TCPC_ALERT_TX_FAILED) {
-		LOG(LOG_LVL_DEBUG, chip->log, "TCPC_ALERT_TX_FAILED");
-		tcpm_pd_transmit_complete(chip->tcpci->port, TCPC_TX_FAILED);
+		LOG(LOG_LVL_DEBUG, log, "TCPC_ALERT_TX_FAILED");
+		tcpm_pd_transmit_complete(tcpci->port, TCPC_TX_FAILED);
 	}
 
 	/* Reinit regs as Hard reset sets them to default value */
 	if ((status & TCPC_ALERT_TX_SUCCESS) && (status &
 						 TCPC_ALERT_TX_FAILED))
-		max77759_init_regs(chip, false);
+		max77759_init_regs(tcpci->regmap, log);
 }
 
 static int max77759_enable_voltage_alarm(struct max77759_plat *chip, bool enable, bool high)
 {
 	int ret;
 
-	mutex_lock(&chip->vbus_alarm_lock);
 	if (!enable) {
 		ret = max77759_update_bits8(chip->tcpci->regmap, TCPC_POWER_CTRL,
 					    TCPC_DIS_VOLT_ALRM, TCPC_DIS_VOLT_ALRM);
 		if (ret < 0)
 			LOG(LOG_LVL_DEBUG, chip->log,
 			    "Unable to disable voltage alarm, ret = %d", ret);
-		goto exit;
+		return ret;
 	}
 
 	/* Set voltage alarm */
@@ -1724,7 +1664,7 @@ static int max77759_enable_voltage_alarm(struct max77759_plat *chip, bool enable
 	if (ret < 0) {
 		LOG(LOG_LVL_DEBUG, chip->log,
 		    "Unable to config VOLTAGE_ALARM_HI_CFG, ret = %d", ret);
-		goto exit;
+		return ret;
 	}
 
 	ret = max77759_update_bits16(chip->tcpci->regmap, TCPC_VBUS_VOLTAGE_ALARM_LO_CFG,
@@ -1734,29 +1674,22 @@ static int max77759_enable_voltage_alarm(struct max77759_plat *chip, bool enable
 	if (ret < 0) {
 		LOG(LOG_LVL_DEBUG, chip->log,
 		    "Unable to config VOLTAGE_ALARM_LO_CFG, ret = %d", ret);
-		goto exit;
+		return ret;
 	}
 
 	ret = max77759_update_bits8(chip->tcpci->regmap, TCPC_POWER_CTRL, TCPC_DIS_VOLT_ALRM, 0);
 	if (ret < 0) {
 		LOG(LOG_LVL_DEBUG, chip->log, "Unable to enable voltage alarm, ret = %d", ret);
-		goto exit;
+		return ret;
 	}
 
 	ret = max77759_update_bits16(chip->tcpci->regmap, TCPC_ALERT_MASK,
 				     TCPC_ALERT_V_ALARM_LO | TCPC_ALERT_V_ALARM_HI,
 				     high ? TCPC_ALERT_V_ALARM_HI : TCPC_ALERT_V_ALARM_LO);
-	if (ret < 0) {
+	if (ret < 0)
 		LOG(LOG_LVL_DEBUG, chip->log,
 		    "Unable to unmask voltage alarm interrupt, ret = %d", ret);
-		goto exit;
-	}
 
-	chip->alarm_enabled = enable;
-	chip->alarm_high = high;
-
-exit:
-	mutex_unlock(&chip->vbus_alarm_lock);
 	return ret;
 }
 
@@ -1943,78 +1876,6 @@ static void max77759_cache_cc(struct max77759_plat *chip, enum typec_cc_status n
 	    "cc1: %u -> %u cc2: %u -> %u", chip->cc1, new_cc1, chip->cc2, new_cc2);
 	chip->cc1 = new_cc1;
 	chip->cc2 = new_cc2;
-}
-
-static void dump_vbus_present_and_vsafe0v(struct max77759_plat *chip)
-{
-	bool vsafe0v, vbus_present;
-	int ret;
-	u8 extended_status, pwr_status;
-	struct regmap *regmap = chip->data.regmap;
-
-	ret = max77759_read8(regmap, TCPC_EXTENDED_STATUS, &extended_status);
-	if (ret < 0) {
-		LOG(LOG_LVL_DEBUG, chip->log, "[%s] Unable to fetch extended status, ret=%d",
-		    __func__, ret);
-		return;
-	}
-	ret = max77759_read8(regmap, TCPC_POWER_STATUS, &pwr_status);
-	if (ret < 0) {
-		LOG(LOG_LVL_DEBUG, chip->log, "[%s] Unable to fetch power status, ret=%d",
-		    __func__, ret);
-		return;
-	}
-
-	vsafe0v = !!(extended_status & TCPC_EXTENDED_STATUS_VSAFE0V);
-	vbus_present = !!(pwr_status & TCPC_POWER_STATUS_VBUS_PRES);
-
-	logbuffer_logk(chip->log, LOGLEVEL_INFO,
-		       "[%s] chip: vsafe0v:%c vbus_present %d live: vsafe0v:%c vbus_present:%d\n",
-		       __func__, chip->vsafe0v ? 'Y' : 'N', chip->vbus_present,
-		       vsafe0v ? 'Y' : 'N', vbus_present);
-}
-
-static void max777x9_process_vsafe0v(struct max77759_plat *chip, bool vsafe0v)
-{
-	if (vsafe0v) {
-		chip->sourcing_vbus_high = 0;
-		if (chip->manual_disable_vbus)
-			max77759_force_discharge(chip, false);
-	}
-
-	/*
-	 * b/199991513 For some OVP chips, when the incoming Vbus ramps up from 0, there is
-	 * a chance that an induced voltage (over Vsafe0V) behind the OVP would appear for a
-	 * short time and then drop to 0 (Vsafe0V), and ramp up to some HIGH voltage
-	 * (e.g Vsafe5V). To ignore the unwanted Vsafe0V event, queue a delayed work and
-	 * re-check the voltage after VSAFE0V_DEBOUNCE_MS.
-	 *
-	 * The OVP which is restricted to quick ramp-up Vbus is the same as the one
-	 * mentioned above. Thus re-use the same flag chip->quick_ramp_vbus_ovp.
-	 */
-	mutex_lock(&chip->vsafe0v_lock);
-	if (chip->quick_ramp_vbus_ovp) {
-		if (!chip->vsafe0v && vsafe0v) {
-			kthread_mod_delayed_work(chip->wq, &chip->vsafe0v_work,
-						 msecs_to_jiffies(VSAFE0V_DEBOUNCE_MS));
-			/*
-			 * Do not update chip->vsafe0v here. This will be updated in vsafe0v_work
-			 * after debounce.
-			 */
-			goto unlock;
-		}
-	} else if (vsafe0v) {
-		chip->vbus_present = 0;
-		/* Have to update before posting event to TCPM */
-		chip->vsafe0v = vsafe0v;
-		tcpm_vbus_change(chip->port);
-	}
-
-	chip->vsafe0v = vsafe0v;
-	LOG(LOG_LVL_DEBUG, chip->log, "[%s] chip:vbus_present%d vsafe0v:%c\n",
-	    __func__, chip->vbus_present, chip->vsafe0v ? 'Y' : 'N');
-unlock:
-	mutex_unlock(&chip->vsafe0v_lock);
 }
 
 /* hold irq_status_lock before calling */
@@ -2245,21 +2106,6 @@ static irqreturn_t _max77759_irq_locked(struct max77759_plat *chip, u16 status,
 		LOG(LOG_LVL_DEBUG, log, "VBUS LOW ALARM triggered: thresh:%umv vbus:%umv",
 		    (raw & TCPC_VBUS_VOLTAGE_MASK) * TCPC_VBUS_VOLTAGE_LSB_MV,
 		    max77759_get_vbus_voltage_mv(chip->client));
-
-		dump_vbus_present_and_vsafe0v(chip);
-		/*
-		 * VBUS ALARM_LOW set to less than disconnect threshold.
-		 * Therefore its OK to clear vbus present here.
-		 * b/407560729: This acts as a backup when VSAFE0V fails to fire
-		 * from TCPC and therefore leaving TCPM to still think that vbus
-		 * is present.
-		 */
-		chip->vbus_present = 0;
-		chip->sourcing_vbus = 0;
-		LOG(LOG_LVL_DEBUG, chip->log,
-		    "%s: Cleared chip: vbus_present and sourcing vbus\n", __func__);
-		tcpm_vbus_change(tcpci->port);
-		max777x9_process_vsafe0v(chip, max777x9_check_vbus_vsafe0v(chip));
 		max77759_enable_voltage_alarm(chip, true, true);
 
 		ret = extcon_set_state_sync(chip->extcon, EXTCON_MECHANICAL, 0);
@@ -2292,12 +2138,12 @@ static irqreturn_t _max77759_irq_locked(struct max77759_plat *chip, u16 status,
 			goto reschedule;
 
 		tcpm_pd_hard_reset(tcpci->port);
-		max77759_init_regs(chip, false);
+		max77759_init_regs(tcpci->regmap, log);
 	}
 
 	if (status & TCPC_ALERT_TX_SUCCESS || status &
 	    TCPC_ALERT_TX_DISCARDED || status & TCPC_ALERT_TX_FAILED)
-		process_tx(chip, status);
+		process_tx(tcpci, status, log);
 
 	if (status & TCPC_ALERT_VENDOR) {
 		LOG(LOG_LVL_DEBUG, log, "Exit TCPC_VENDOR_ALERT Unmask");
@@ -2322,7 +2168,34 @@ static irqreturn_t _max77759_irq_locked(struct max77759_plat *chip, u16 status,
 		LOG(LOG_LVL_DEBUG, log, "VSAFE0V (runtime): %c -> %c",
 		    chip->vsafe0v ? 'Y' : 'N', vsafe0v ? 'Y' : 'N');
 
-		max777x9_process_vsafe0v(chip, vsafe0v);
+		if (vsafe0v && chip->manual_disable_vbus)
+			max77759_force_discharge(chip, false);
+
+		/*
+		 * b/199991513 For some OVP chips, when the incoming Vbus ramps up from 0, there is
+		 * a chance that an induced voltage (over Vsafe0V) behind the OVP would appear for a
+		 * short time and then drop to 0 (Vsafe0V), and ramp up to some HIGH voltage
+		 * (e.g Vsafe5V). To ignore the unwanted Vsafe0V event, queue a delayed work and
+		 * re-check the voltage after VSAFE0V_DEBOUNCE_MS.
+		 *
+		 * The OVP which is restricted to quick ramp-up Vbus is the same as the one
+		 * mentioned above. Thus re-use the same flag chip->quick_ramp_vbus_ovp.
+		 */
+		if (chip->quick_ramp_vbus_ovp) {
+			if (!chip->vsafe0v && vsafe0v)
+				kthread_mod_delayed_work(chip->wq, &chip->vsafe0v_work,
+							 msecs_to_jiffies(VSAFE0V_DEBOUNCE_MS));
+		} else if (vsafe0v) {
+			chip->vbus_present = 0;
+			LOG(LOG_LVL_DEBUG, chip->log,
+			    "[%s]: vbus_present %d", __func__, chip->vbus_present);
+			tcpm_vbus_change(tcpci->port);
+		}
+
+		if (vsafe0v)
+			chip->sourcing_vbus_high = 0;
+
+		chip->vsafe0v = vsafe0v;
 	}
 
 	LOG(LOG_LVL_DEBUG, log, "TCPC_ALERT status done: %#x", status);
@@ -2470,7 +2343,7 @@ static int max77759_start_toggling(struct google_shim_tcpci *tcpci,
 		reg |= (TCPC_ROLE_CTRL_CC_RP << TCPC_ROLE_CTRL_CC1_SHIFT) |
 			(TCPC_ROLE_CTRL_CC_RP << TCPC_ROLE_CTRL_CC2_SHIFT);
 
-	max77759_init_regs(chip, false);
+	max77759_init_regs(chip->tcpci->regmap, chip->log);
 
 	chip->role_ctrl_cache = reg;
 	mutex_lock(&chip->rc_lock);
@@ -2708,19 +2581,6 @@ static int max77759_get_vbus(struct google_shim_tcpci *tcpci, struct google_shim
 	return chip->vbus_present;
 }
 
-static bool max777x9_is_vbus_vsafe0v(struct google_shim_tcpci *tcpci,
-				     struct google_shim_tcpci_data *data)
-{
-	struct max77759_plat *chip = tdata_to_max77759(data);
-	bool vsafe0v;
-
-	mutex_lock(&chip->vsafe0v_lock);
-	vsafe0v = chip->vsafe0v;
-	mutex_unlock(&chip->vsafe0v_lock);
-
-	return vsafe0v;
-}
-
 static int max77759_usb_set_role(struct usb_role_switch *sw, enum usb_role role)
 {
 	struct max77759_plat *chip = usb_role_switch_get_drvdata(sw);
@@ -2757,14 +2617,9 @@ static int max77759_usb_set_role(struct usb_role_switch *sw, enum usb_role role)
 		}
 	}
 
-	/*
-	 * Renable BC1.2 upon disconnect if disabled. Needed for sink-only mode
-	 * such as fastbootd/Recovery. As this is on a data role change event,
-	 * BC1.2 state shall be cleared to prepare for the next detection.
-	 */
+	/* Renable BC1.2 */
 	if (chip->attached && !attached && !bc12_get_status(chip->bc12))
 		bc12_enable(chip->bc12, true);
-
 	/*
 	 * To prevent data stack enumeration failure, previously there
 	 * was a 300msec delay here
@@ -2775,6 +2630,13 @@ static int max77759_usb_set_role(struct usb_role_switch *sw, enum usb_role role)
 	enable_data_path_locked(chip);
 	mutex_unlock(&chip->data_path_lock);
 	usb_psy_set_attached_state(chip->usb_psy_data, chip->attached);
+
+	/*
+	 * Renable BC1.2 upon disconnect if disabled. Needed for sink-only mode such as
+	 * fastbootd/Recovery.
+	 */
+	if (chip->attached && !attached && !bc12_get_status(chip->bc12))
+		bc12_enable(chip->bc12, true);
 
 	/*
 	 * Clear COMPLIANCE_WARNING_INPUT_POWER_LIMITED which tracks AICL_ACTIVE only upon
@@ -2867,7 +2729,8 @@ void max77759_bc12_is_running(struct max77759_plat *chip, bool running)
 	if (chip) {
 		mutex_lock(&chip->data_path_lock);
 		chip->bc12_running = running;
-		enable_data_path_locked(chip);
+		if (!running)
+			enable_data_path_locked(chip);
 		mutex_unlock(&chip->data_path_lock);
 	}
 }
@@ -2883,10 +2746,6 @@ static void max77759_set_port_data_capable(struct i2c_client *tcpc_client,
 	case POWER_SUPPLY_USB_TYPE_CDP:
 		mutex_lock(&chip->data_path_lock);
 		chip->bc12_data_capable = true;
-		/*
-		 * Called through set prop on POWER_SUPPLY_PROP_USB_TYPE from BC12 with
-		 * bc12->lock held.
-		 */
 		enable_data_path_locked(chip);
 		mutex_unlock(&chip->data_path_lock);
 		break;
@@ -2894,10 +2753,6 @@ static void max77759_set_port_data_capable(struct i2c_client *tcpc_client,
 	case POWER_SUPPLY_USB_TYPE_UNKNOWN:
 		mutex_lock(&chip->data_path_lock);
 		chip->bc12_data_capable = false;
-		/*
-		 * Called through set prop on POWER_SUPPLY_PROP_USB_TYPE from BC12 with
-		 * bc12->lock held.
-		 */
 		enable_data_path_locked(chip);
 		mutex_unlock(&chip->data_path_lock);
 		break;
@@ -3578,19 +3433,6 @@ static int max77759_probe(struct i2c_client *client,
 	mutex_init(&chip->irq_status_lock);
 	mutex_init(&chip->ovp_lock);
 	mutex_init(&chip->ext_bst_ovp_clear_lock);
-
-	ret = devm_mutex_init(&client->dev, &chip->vsafe0v_lock);
-	if (ret < 0) {
-		dev_err(&client->dev, "vsafe0v_lock init failed!\n");
-		return ret;
-	}
-
-	ret = devm_mutex_init(&client->dev, &chip->vbus_alarm_lock);
-	if (ret < 0) {
-		dev_err(&client->dev, "vbus_alarm_lock init failed!\n");
-		return ret;
-	}
-
 	spin_lock_init(&g_caps_lock);
 	chip->first_toggle = true;
 
@@ -3634,9 +3476,6 @@ static int max77759_probe(struct i2c_client *client,
 	chip->data.frs_sourcing_vbus = max77759_frs_sourcing_vbus;
 	chip->data.check_contaminant = max_tcpci_check_contaminant;
 	chip->data.get_vbus = max77759_get_vbus;
-	chip->data.is_vbus_vsafe0v = max777x9_is_vbus_vsafe0v;
-
-	chip->vsafe0v = max777x9_check_vbus_vsafe0v(chip);
 
 	chip->compliance_warnings = init_compliance_warnings(chip);
 	if (IS_ERR_OR_NULL(chip->compliance_warnings)) {
@@ -3768,7 +3607,7 @@ static int max77759_probe(struct i2c_client *client,
 	ret = max77759_setup_data_notifier(chip);
 	if (ret < 0)
 		goto dp_regulator_put;
-	max77759_init_regs(chip, true);
+	max77759_init_regs(chip->data.regmap, chip->log);
 
 	/* Default enable on MAX77759 A1 or higher. Default enable on MAX77779 */
 	if (pid == MAX77779_PRODUCT_ID || device_id >= MAX77759_DEVICE_ID_A1) {

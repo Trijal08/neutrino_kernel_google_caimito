@@ -1280,6 +1280,9 @@ static int create_queue_group(struct kbase_context *const kctx,
 		goto exit;
 	}
 
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+	group->prev_act = false;
+#endif
 	group->kctx = kctx;
 	group->handle = group_handle;
 	group->csg_nr = KBASEP_CSG_NR_INVALID;
@@ -1309,7 +1312,6 @@ static int create_queue_group(struct kbase_context *const kctx,
 	group->neural_mask = create->in.neural_mask;
 	group->comp_pri_threshold = create->in.comp_pri_threshold;
 	group->comp_pri_ratio = create->in.comp_pri_ratio;
-	group->fragment_endpoint_task_limit = create->in.fragment_endpoint_task_limit;
 
 #if IS_ENABLED(CONFIG_DEBUG_FS)
 	group->deschedule_deferred_cnt = 0;
@@ -1820,22 +1822,13 @@ void kbase_csf_ctx_handle_fault(struct kbase_context *kctx, struct kbase_fault *
 				bool fw_unresponsive)
 {
 	int gr;
+	bool reported = false;
 	struct base_gpu_queue_group_error err_payload;
-	int err;
-	struct kbase_device *kbdev;
 
 	if (WARN_ON(!kctx))
 		return;
 
 	if (WARN_ON(!fault))
-		return;
-
-	kbdev = kctx->kbdev;
-	err = kbase_reset_gpu_try_prevent(kbdev);
-	/* Regardless of whether reset failed or is currently happening, exit
-	 * early
-	 */
-	if (err)
 		return;
 
 	err_payload =
@@ -1845,28 +1838,12 @@ void kbase_csf_ctx_handle_fault(struct kbase_context *kctx, struct kbase_fault *
 									  .status = fault->status,
 								  } } };
 
-	rt_mutex_lock(&kctx->csf.lock);
+	lockdep_assert_held(&kctx->csf.lock);
 
 	for (gr = 0; gr < MAX_QUEUE_GROUP_NUM; gr++) {
 		struct kbase_queue_group *const group = kctx->csf.queue_groups[gr];
 
-		if (group) {
-			enum kbase_csf_group_state run_state;
-			s8 csg_nr;
-
-			/* Skip already terminated groups, or groups that have never been scheduled
-			 * since they should not have been impacted by this fault.
-			 */
-			kbase_csf_scheduler_lock(kbdev);
-			run_state = group->run_state;
-			csg_nr = group->csg_nr;
-			kbase_csf_scheduler_unlock(kbdev);
-			if ((run_state == KBASE_CSF_GROUP_TERMINATED) ||
-			    (run_state == KBASE_CSF_GROUP_INACTIVE) ||
-			    ((run_state == KBASE_CSF_GROUP_RUNNABLE) &&
-			     (csg_nr == KBASEP_CSG_NR_INVALID)))
-				continue;
-
+		if (group && group->run_state != KBASE_CSF_GROUP_TERMINATED) {
 			/* If the FW is known to have become unresponsive, then the wait for CSG
 			 * termination request can be safely skipped.
 			 */
@@ -1878,14 +1855,12 @@ void kbase_csf_ctx_handle_fault(struct kbase_context *kctx, struct kbase_fault *
 			 * the error_list by kbase_csf_ctx_report_page_fault_for_active_groups().
 			 */
 			kbase_csf_add_group_fatal_error(group, &err_payload);
+			reported = true;
 		}
 	}
 
-	rt_mutex_unlock(&kctx->csf.lock);
-
-	kbase_event_wakeup_sync(kctx);
-
-	kbase_reset_gpu_allow(kbdev);
+	if (reported)
+		kbase_event_wakeup_sync(kctx);
 }
 
 void kbase_csf_ctx_term(struct kbase_context *kctx)
@@ -2050,26 +2025,6 @@ void kbase_csf_ctx_term(struct kbase_context *kctx)
 	kbase_csf_kcpu_queue_context_term(kctx);
 	kbase_csf_scheduler_context_term(kctx);
 	kbase_csf_event_term(kctx);
-}
-
-/**
- * handle_fw_unrecovery() - Handler for FW being unrecoverable
- *
- * @kbdev:     Instance of a GPU platform device that implements a CSF interface.
- *
- * This function is called when FW becomes unrecoverable.
- * It will set flag indicating FW recoverable state,
- * and wake up wait queues potentially pending on FW response.
- *
- */
-static void handle_fw_unrecovery(struct kbase_device *kbdev)
-{
-	if (!WARN(kbdev->csf.firmware_unrecoverable,
-		  "firmware_unrecoverable is not yet cleared\n")) {
-		kbdev->csf.firmware_unrecoverable = true;
-		wake_up_all(&kbdev->csf.event_wait);
-		wake_up_all(&kbdev->pm.backend.gpu_in_desired_state_wait);
-	}
 }
 
 int kbase_csf_cs_get_pending_oom(struct kbase_device *kbdev, struct kbase_queue *queue,
@@ -2888,7 +2843,6 @@ static void handle_fatal_event(struct kbase_queue *const queue, u32 group_id, u3
 			kbase_reset_gpu(queue->kctx->kbdev);
 
 	if (cs_fatal_exception_type == CS_FATAL_EXCEPTION_TYPE_FIRMWARE_INTERNAL_ERROR) {
-		handle_fw_unrecovery(kbdev);
 		if (dump_oops_in_dmesg)
 			kbase_csf_firmware_log_dump_buffer(kbdev);
 		if (dump_ktrace_in_dmesg)
@@ -3388,15 +3342,13 @@ static int process_prfcnt_interrupts(struct kbase_device *kbdev, u32 glb_req, u3
 	/* Process PRFCNT_OVERFLOW interrupt. */
 	if ((glb_req ^ glb_ack) & GLB_REQ_PRFCNT_OVERFLOW_MASK) {
 		dev_dbg(kbdev->dev, "PRFCNT_OVERFLOW interrupt received.");
-		/* This function may lock the FW I/O interface, hence
-		 * it should not be called while keeping the FW I/O lock.
-		 */
-		kbase_hwcnt_backend_csf_on_prfcnt_overflow(&kbdev->hwcnt_gpu_iface);
 		if (kbase_csf_fw_io_open(fw_io, &fw_io_flags)) {
 			dev_dbg(kbdev->dev,
 				"Skipping PRFCNT_OVERFLOW interrupt handling due to unresponsive MCU.");
 			return -ENODEV;
 		}
+
+		kbase_hwcnt_backend_csf_on_prfcnt_overflow(&kbdev->hwcnt_gpu_iface);
 
 		/* Set the GLB_REQ.PRFCNT_OVERFLOW flag back to
 		 * the same value as GLB_ACK.PRFCNT_OVERFLOW
@@ -3437,10 +3389,7 @@ static inline void check_protm_enter_req_complete(struct kbase_device *kbdev, u3
 	if ((glb_req & GLB_REQ_PROTM_ENTER_MASK) != (glb_ack & GLB_REQ_PROTM_ENTER_MASK))
 		return;
 
-	kbase_csf_scheduler_append_protm_flag(kbdev, CSF_SCHED_PROTM_EVENT_ENTER_FW_ACK);
-	dev_dbg(kbdev->dev, "Protected mode entry interrupt received, event_seq: %d",
-		GET_PROTM_EVENT_ID_SEQ(
-			atomic_read(&kbdev->csf.scheduler.pages_defer_ctrl.protm_event_id)));
+	dev_dbg(kbdev->dev, "Protected mode entry interrupt received");
 
 	kbdev->protected_mode = true;
 	trace_mali_protected_mode(kbdev->protected_mode);
@@ -3494,7 +3443,6 @@ static inline int process_protm_exit(struct kbase_device *kbdev, u32 glb_ack)
 	if (!WARN_ON(!kbdev->protected_mode)) {
 		kbdev->protected_mode = false;
 		trace_mali_protected_mode(kbdev->protected_mode);
-		kbase_csf_scheduler_complete_protm_event(kbdev);
 		kbase_ipa_control_protm_exited(kbdev);
 		kbase_hwcnt_backend_csf_protm_exited(&kbdev->hwcnt_gpu_iface);
 	}
@@ -3816,12 +3764,12 @@ static void handle_glb_fatal(struct kbase_device *const kbdev)
 	pixel_gpu_uevent_kmd_error_send(kbdev, GPU_UEVENT_INFO_FW_ERROR);
 	kbasep_platform_event_core_dump(kbdev, "Internal firmware error");
 
-	handle_fw_unrecovery(kbdev);
-
 	for (as = 0; as < kbdev->nr_hw_address_spaces; as++) {
 		unsigned long flags;
 		struct kbase_context *kctx;
-		struct kbase_fault fault;
+		struct kbase_fault fault = (struct kbase_fault){
+			.status = GPU_EXCEPTION_TYPE_SW_FAULT_1,
+		};
 
 		if (as == MCU_AS_NR)
 			continue;
@@ -3838,10 +3786,13 @@ static void handle_glb_fatal(struct kbase_device *const kbdev)
 			spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 			continue;
 		}
-		fault = (struct kbase_fault){
-			.status = GPU_EXCEPTION_TYPE_SW_FAULT_1,
-		};
-		kbase_csf_ctx_handle_fault(kctx, &fault, true);
+		if (!kbase_reset_gpu_try_prevent(kbdev)) {
+			rt_mutex_lock(&kctx->csf.lock);
+			kbase_csf_ctx_handle_fault(kctx, &fault, true);
+			rt_mutex_unlock(&kctx->csf.lock);
+
+			kbase_reset_gpu_allow(kbdev);
+		}
 		kbase_ctx_sched_release_ctx_lock(kctx);
 	}
 	if (kbase_prepare_to_reset_gpu(kbdev, RESET_FLAGS_HWC_UNRECOVERABLE_ERROR))

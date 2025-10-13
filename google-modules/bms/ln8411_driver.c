@@ -31,7 +31,7 @@
 #define LN8411_VBATMIN_CHECK_T	1000	/* 1000ms */
 #define LN8411_CCMODE_CHECK1_T	5000	/* 10000ms -> 500ms */
 #define LN8411_CCMODE_CHECK2_T	5000	/* 5000ms */
-#define LN8411_CVMODE_CHECK_T	2000	/* 2000ms */
+#define LN8411_CVMODE_CHECK_T 	10000	/* 10000ms */
 #define LN8411_ENABLE_DELAY_T	250	/* 250ms */
 #define LN8411_CVMODE_CHECK2_T	1000	/* 1000ms */
 #define LN8411_ENABLE_WLC_DELAY_T	300	/* 300ms */
@@ -1178,7 +1178,6 @@ static int ln8411_read_status(struct ln8411_charger *ln8411)
 {
 	int ret = 0;
 	unsigned int reg_val;
-	int vbat;
 
 	ret = regmap_read(ln8411->regmap, LN8411_FAULT3_STS, &reg_val);
 	if (ret < 0) {
@@ -1196,16 +1195,12 @@ static int ln8411_read_status(struct ln8411_charger *ln8411)
 	}
 	*/
 
-	ret = ln8411_get_batt_info(ln8411, BATT_VOLTAGE, &vbat);
-	if (ret)
-		return ret;
-
 	if (ln8411_read_adc(ln8411, ADCCH_IIN) >= ln8411->iin_reg)
 		ret = STS_MODE_IIN_LOOP;
-	else if (vbat >= ln8411->vfloat_reg)
+	else if (ln8411_read_adc(ln8411, ADCCH_VBAT) >= ln8411->vfloat_reg)
 		ret = STS_MODE_VFLT_LOOP;
 	else
-		ret = STS_MODE_LOOP_INACTIVE;
+		ret = STS_MODE_LOOP_INACTIVE;;
 
 	return ret;
 }
@@ -3976,9 +3971,6 @@ skip_pps:
 		ln8411->timer_period = LN8411_TA_CONFIG_WAIT_T;
 	else if (ln8411->ta_type == TA_TYPE_WIRELESS)
 		ln8411->timer_period = LN8411_PDMSG_WLC_WAIT_T;
-	else if ((ln8411->charging_state == DC_STATE_CV_MODE) ||
-		 (ln8411->charging_state == DC_STATE_START_CV))
-		ln8411->timer_period = LN8411_CVMODE_CHECK_T;
 	else
 		ln8411->timer_period = LN8411_PDMSG_WAIT_T;
 

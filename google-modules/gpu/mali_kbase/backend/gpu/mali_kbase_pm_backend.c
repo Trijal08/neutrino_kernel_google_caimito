@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2010-2025 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2024 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -143,6 +143,10 @@ int kbase_hwaccess_pm_init(struct kbase_device *kbdev)
 
 	INIT_WORK(&kbdev->pm.backend.gpu_poweroff_wait_work, kbase_pm_gpu_poweroff_wait_wq);
 
+	kbdev->pm.backend.ca_cores_enabled = ~0ull;
+	if (kbase_hw_has_feature(kbdev, KBASE_HW_FEATURE_GOV_CORE_MASK_SUPPORT))
+		kbdev->pm.backend.ca_gov_cores_enabled = ~0ull;
+
 	init_waitqueue_head(&kbdev->pm.backend.gpu_in_desired_state_wait);
 
 	mutex_init(&kbdev->pm.backend.policy_change_lock);
@@ -158,7 +162,7 @@ int kbase_hwaccess_pm_init(struct kbase_device *kbdev)
 
 	init_waitqueue_head(&kbdev->pm.zero_active_count_wait);
 	init_waitqueue_head(&kbdev->pm.resume_wait);
-	atomic_set(&kbdev->pm.active_count, 0);
+	kbdev->pm.active_count = 0;
 
 	spin_lock_init(&kbdev->pm.backend.gpu_cycle_counter_requests_lock);
 
@@ -594,7 +598,7 @@ static int kbase_pm_do_poweroff_sync(struct kbase_device *kbdev)
 	unsigned long flags;
 	int ret;
 
-	WARN_ON(atomic_read(&kbdev->pm.active_count));
+	WARN_ON(kbdev->pm.active_count);
 
 	ret = kbase_pm_wait_for_poweroff_work_complete(kbdev);
 	if (ret)
@@ -684,7 +688,6 @@ int kbase_hwaccess_pm_powerup(struct kbase_device *kbdev, unsigned int flags)
 {
 	unsigned long irq_flags;
 	int ret;
-	struct kbase_pm_core_masks all_core_masks;
 
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
@@ -702,6 +705,10 @@ int kbase_hwaccess_pm_powerup(struct kbase_device *kbdev, unsigned int flags)
 		return ret;
 	}
 
+	if (kbase_hw_has_feature(kbdev, KBASE_HW_FEATURE_GOV_CORE_MASK_SUPPORT))
+		kbdev->pm.sysfs_gov_core_mask = kbdev->gpu_props.shader_present;
+
+	kbdev->pm.debug_core_mask = kbdev->gpu_props.shader_present;
 	spin_lock_irqsave(&kbdev->hwaccess_lock, irq_flags);
 	/* Set the initial value for 'shaders_avail'. It would be later
 	 * modified only from the MCU state machine, when the shader core
@@ -709,14 +716,13 @@ int kbase_hwaccess_pm_powerup(struct kbase_device *kbdev, unsigned int flags)
 	 * indicate the mask of cores that are currently being used by FW for
 	 * the allocation of endpoints requested by CSGs.
 	 */
-	all_core_masks = kbase_pm_ca_get_core_masks(kbdev);
-	kbdev->pm.backend.shaders_avail = all_core_masks.pm_core_mask_alloc_en;
+	kbdev->pm.backend.shaders_avail = kbase_pm_ca_get_core_mask(kbdev);
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, irq_flags);
 
 	/* Pretend the GPU is active to prevent a power policy turning the GPU
 	 * cores off
 	 */
-	atomic_set(&kbdev->pm.active_count, 1);
+	kbdev->pm.active_count = 1;
 
 	if (IS_ENABLED(CONFIG_PM) && kbdev->pm.backend.callback_power_runtime_gpu_active) {
 		/* Take the RPM reference count to match with the internal
@@ -770,7 +776,7 @@ KBASE_EXPORT_TEST_API(kbase_hwaccess_pm_halt);
 void kbase_hwaccess_pm_term(struct kbase_device *kbdev)
 {
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
-	WARN_ON(atomic_read(&kbdev->pm.active_count) != 0);
+	KBASE_DEBUG_ASSERT(kbdev->pm.active_count == 0);
 	KBASE_DEBUG_ASSERT(kbdev->pm.backend.gpu_cycle_counter_requests == 0);
 
 	cancel_work_sync(&kbdev->pm.backend.hwcnt_disable_work);
@@ -812,8 +818,13 @@ void kbase_pm_set_debug_core_mask(struct kbase_device *kbdev, u64 new_core_mask)
 	lockdep_assert_held(&kbdev->hwaccess_lock);
 	lockdep_assert_held(&kbdev->pm.lock);
 
-	kbase_pm_ca_set_core_mask(kbdev, PM_CA_COREMASK_TYPE_SYSFS, new_core_mask);
-	kbase_pm_update_dynamic_cores_onoff(kbdev);
+	if (kbase_hw_has_feature(kbdev, KBASE_HW_FEATURE_GOV_CORE_MASK_SUPPORT)) {
+		kbdev->pm.sysfs_gov_core_mask = new_core_mask;
+		kbase_pm_ca_set_gov_core_mask_nolock(kbdev, SYSFS_COREMASK, new_core_mask);
+	} else {
+		kbdev->pm.debug_core_mask = new_core_mask;
+		kbase_pm_update_dynamic_cores_onoff(kbdev);
+	}
 }
 KBASE_EXPORT_TEST_API(kbase_pm_set_debug_core_mask);
 
@@ -948,20 +959,9 @@ int kbase_pm_force_mcu_wakeup_after_sleep(struct kbase_device *kbdev)
 	return kbase_pm_wait_for_desired_state(kbdev);
 }
 
-/**
- * pm_handle_mcu_sleep_on_runtime_suspend() - Handle RT suspend when the MCU
- *                                            SM is in IN_SLEEP state
- *
- * @kbdev: The KBase device
- * @wake_up_sched: Whether the scheduler should be woken up after a successful
- *                 suspension
- *
- * Return: 0 on success, negative value otherwise.
- */
-static int pm_handle_mcu_sleep_on_runtime_suspend(struct kbase_device *kbdev, bool *wake_up_sched)
+static int pm_handle_mcu_sleep_on_runtime_suspend(struct kbase_device *kbdev)
 {
 	unsigned long flags;
-	bool suspension_aborted = false;
 	int ret;
 
 	lockdep_assert_held(&kbdev->csf.scheduler.lock);
@@ -1009,94 +1009,24 @@ static int pm_handle_mcu_sleep_on_runtime_suspend(struct kbase_device *kbdev, bo
 	/* Power down L2 cache */
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 	kbdev->pm.backend.gpu_wakeup_override = false;
-	/* After re-acquiring the kbdev->pm.lock, check if the device
-	 * became active (or active then idle) meanwhile.
-	 */
-	if (atomic_read(&kbdev->pm.active_count) || kbdev->pm.backend.poweroff_wait_in_progress ||
-	    ret) {
-		dev_dbg(kbdev->dev,
-			"Device became active on runtime suspend after suspending Scheduler");
-		suspension_aborted = true;
-		if (is_gpu_level_suspend_supported(kbdev) && !ret)
-			kbase_csf_scheduler_revert_all_csg_suspension_preparation(kbdev);
-
-		ret = -EBUSY;
-	} else if (is_gpu_level_suspend_supported(kbdev))
-		kbdev->pm.backend.gpu_sleep_mode_active = false;
 	kbase_pm_update_state(kbdev);
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
-	if (!ret) {
-		ret = kbase_pm_wait_for_desired_state(kbdev);
-		if (ret)
-			dev_warn(kbdev->dev, "Wait for power down failed on runtime suspend");
-	}
-
-	/* CSG slots' state must be checked and saved if we have attempted to
-	 * power down. There are several possibilities:
-	 * 1. GPU suspended successfully, scheduler doesn't need resuming.
-	 * 2. GPU suspended successfully, scheduler needs to resume.
-	 * 3. GPU failed to suspend i.e., not all slots suspended successfully:
-	 *    we trigger GPU reset. */
-	if (is_gpu_level_suspend_supported(kbdev) && likely(!suspension_aborted)) {
-		if (!kbase_csf_scheduler_check_gls_success(kbdev)) {
-
-			/* The suspend of CSGs failed,
-			 * trigger the GPU reset to be in a deterministic state.
-			 */
-			if (kbase_prepare_to_reset_gpu(kbdev, RESET_FLAGS_NONE))
-				kbase_reset_gpu(kbdev);
-
-			ret = -EBUSY;
-		}
-	}
-
-	/* When succeeded, both the gls and non-gls needs to finalize common wake-up */
-	if (!ret)
-		*wake_up_sched = kbase_csf_scheduler_finalize_gpu_suspend(kbdev);
-
-	return ret;
-}
-
-/**
- * pm_handle_mcu_off_on_runtime_suspend() - Handle RT suspend when the MCU SM
- *                                          is in OFF state
- *
- * @kbdev: The KBase device
- * @wake_up_sched: Whether the scheduler should be woken up after a successful
- *                 suspension
- *
- * Return: 0 on success, negative value otherwise.
- */
-static int pm_handle_mcu_off_on_runtime_suspend(struct kbase_device *kbdev, bool *wake_up_sched)
-{
-	int ret = 0;
-
-	lockdep_assert_held(&kbdev->csf.scheduler.lock);
-	lockdep_assert_held(&kbdev->pm.lock);
-
-	if (!is_gpu_level_suspend_supported(kbdev))
-		return 0;
-
-	ret = kbase_csf_scheduler_handle_runtime_suspend(kbdev);
-
-	/* If GPU-level suspension is supported then all CSGs must have been
-	 * suspended automatically when the MCU becomes halted. We'd need to
-	 * check and clean up the CSG slots now.
+	/* After re-acquiring the kbdev->pm.lock, check if the device
+	 * became active (or active then idle) meanwhile.
 	 */
-	if (!kbase_csf_scheduler_check_gls_success(kbdev)) {
-
-		/* The suspend of CSGs failed,
-		 * trigger the GPU reset to be in a deterministic state.
-		 */
-		if (kbase_prepare_to_reset_gpu(kbdev, RESET_FLAGS_NONE))
-			kbase_reset_gpu(kbdev);
-
+	if (kbdev->pm.active_count || kbdev->pm.backend.poweroff_wait_in_progress) {
+		dev_dbg(kbdev->dev,
+			"Device became active on runtime suspend after suspending Scheduler");
 		ret = -EBUSY;
 	}
 
-	if (!ret)
-		*wake_up_sched = kbase_csf_scheduler_finalize_gpu_suspend(kbdev);
+	if (ret)
+		return ret;
+
+	ret = kbase_pm_wait_for_desired_state(kbdev);
+	if (ret)
+		dev_warn(kbdev->dev, "Wait for power down failed on runtime suspend");
 
 	return ret;
 }
@@ -1106,7 +1036,6 @@ int kbase_pm_handle_runtime_suspend(struct kbase_device *kbdev)
 	enum kbase_mcu_state mcu_state;
 	bool exit_early = false;
 	unsigned long flags;
-	bool wake_up_sched = false;
 	int ret = 0;
 
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
@@ -1161,7 +1090,7 @@ int kbase_pm_handle_runtime_suspend(struct kbase_device *kbdev)
 	 * the fact that pm.lock is released before invoking Scheduler function
 	 * to suspend the CSGs.
 	 */
-	if (atomic_read(&kbdev->pm.active_count) || kbdev->pm.backend.poweroff_wait_in_progress ||
+	if (kbdev->pm.active_count || kbdev->pm.backend.poweroff_wait_in_progress ||
 	    kbdev->pm.runtime_active) {
 		dev_dbg(kbdev->dev, "Device became active on runtime suspend");
 		ret = -EBUSY;
@@ -1187,27 +1116,10 @@ int kbase_pm_handle_runtime_suspend(struct kbase_device *kbdev)
 	}
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
-	/* Runtime suspend callback might be invoked without an active
-	 * scheduler. This could happen if the autosuspend_delay_ms is set to
-	 * a low value that allows the callback to be invoked before the driver
-	 * has finished initialisation, or just after the scheduler has
-	 * terminated during module unloading.
-	 */
-	if (likely(kbdev->csf.scheduler.kthread_running)) {
-		switch (mcu_state) {
-		case KBASE_MCU_OFF:
-			ret = pm_handle_mcu_off_on_runtime_suspend(kbdev, &wake_up_sched);
-			break;
-		case KBASE_MCU_IN_SLEEP:
-			ret = pm_handle_mcu_sleep_on_runtime_suspend(kbdev, &wake_up_sched);
-			break;
-		default:
-			break;
-		}
+	if (mcu_state == KBASE_MCU_IN_SLEEP) {
+		ret = pm_handle_mcu_sleep_on_runtime_suspend(kbdev);
 		if (ret)
 			goto unlock;
-	} else {
-		dev_dbg(kbdev->dev, "Scheduler not yet initialized or has terminated");
 	}
 
 	/* Disable interrupts and turn off the GPU clocks */
@@ -1235,8 +1147,6 @@ int kbase_pm_handle_runtime_suspend(struct kbase_device *kbdev)
 
 unlock:
 	kbase_pm_unlock(kbdev);
-	if (!ret && wake_up_sched)
-		kbase_csf_scheduler_wakeup(kbdev);
 	kbase_csf_scheduler_unlock(kbdev);
 	kbase_reset_gpu_allow(kbdev);
 out:

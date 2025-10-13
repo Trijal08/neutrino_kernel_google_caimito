@@ -38,7 +38,7 @@ static int adc_gain[16] = { 0,  1,  2,  3,  4,  5,  6,  7,
 #define PCA9468_VBATMIN_CHECK_T	1000	/* 1000ms */
 #define PCA9468_CCMODE_CHECK1_T	5000	/* 10000ms -> 500ms */
 #define PCA9468_CCMODE_CHECK2_T	5000	/* 5000ms */
-#define PCA9468_CVMODE_CHECK_T	2000	/* 2000ms */
+#define PCA9468_CVMODE_CHECK_T 	10000	/* 10000ms */
 #define PCA9468_ENABLE_DELAY_T	150	/* 150ms */
 #define PCA9468_CVMODE_CHECK2_T	1000	/* 1000ms */
 #define PCA9468_ENABLE_WLC_DELAY_T	300	/* 300ms */
@@ -48,7 +48,7 @@ static int adc_gain[16] = { 0,  1,  2,  3,  4,  5,  6,  7,
 /* Input Current Limit default value */
 #define PCA9468_IIN_CFG_DFT		2500000 /* uA*/
 /* Charging Float Voltage default value */
-#define PCA9468_VFLOAT_DFT		5000000	/* uV */
+#define PCA9468_VFLOAT_DFT		4350000	/* uV */
 /* Charging Sub Float Voltage default value */
 #define PCA9468_VFLOAT_SUB_DFT		5000000	/* 5000000uV */
 /* Charging Float Voltage max voltage for comp */
@@ -332,8 +332,8 @@ error:
 }
 
 /* v float voltage (5 mV) resolution */
-static int pca9468_set_vfloat_reg(struct pca9468_charger *pca9468,
-				  unsigned int v_float)
+static int pca9468_set_vfloat(struct pca9468_charger *pca9468,
+			      unsigned int v_float)
 {
 	const int val = PCA9468_V_FLOAT(v_float);
 	int ret;
@@ -343,18 +343,6 @@ static int pca9468_set_vfloat_reg(struct pca9468_charger *pca9468,
 	dev_info(pca9468->dev, "%s: v_float=%u (%d)\n", __func__, v_float, ret);
 
 	return ret;
-}
-
-/* v float voltage (5 mV) resolution */
-static int pca9468_set_vfloat(struct pca9468_charger *pca9468,
-			      unsigned int v_float)
-{
-
-	pca9468->vfloat_reg = v_float;
-
-	dev_info(pca9468->dev, "%s: v_float=%u\n", __func__, v_float);
-
-	return 0;
 }
 
 static int pca9468_set_input_current(struct pca9468_charger *pca9468,
@@ -1026,15 +1014,11 @@ static void pca9468_prlog_state(struct pca9468_charger *pca9468, const char *fn)
 static int pca9468_read_status(struct pca9468_charger *pca9468)
 {
 	unsigned int reg_val;
-	int ret, vbat;
+	int ret;
 
 	/* Read STS_A */
 	ret = regmap_read(pca9468->regmap, PCA9468_REG_STS_A, &reg_val);
 	if (ret < 0)
-		return ret;
-
-	ret = pca9468_get_batt_info(pca9468, BATT_VOLTAGE, &vbat);
-	if (ret)
 		return ret;
 
 	if (reg_val & PCA9468_BIT_VIN_UV_STS) {
@@ -1043,7 +1027,7 @@ static int pca9468_read_status(struct pca9468_charger *pca9468)
 		ret = STS_MODE_IIN_LOOP;
 	} else if (reg_val & PCA9468_BIT_CHG_LOOP_STS) {
 		ret = STS_MODE_CHG_LOOP; /* never */
-	} else if (vbat >= pca9468->vfloat_reg) {
+	} else if (reg_val & PCA9468_BIT_VFLT_LOOP_STS) {
 		ret = STS_MODE_VFLT_LOOP;
 	} else {
 		ret = STS_MODE_LOOP_INACTIVE; /* lower IIN or TA to enter CC? */
@@ -1051,6 +1035,8 @@ static int pca9468_read_status(struct pca9468_charger *pca9468)
 
 	return ret;
 }
+
+static int pca9468_const_charge_voltage(struct pca9468_charger *pca9468);
 
 static int pca9468_check_status(struct pca9468_charger *pca9468)
 {
@@ -1133,6 +1119,7 @@ static int pca9468_stop_charging(struct pca9468_charger *pca9468)
 
 	/* restore to config */
 	pca9468->pdata->iin_cfg = pca9468->pdata->iin_cfg_max;
+	pca9468->pdata->v_float = pca9468->pdata->v_float_dt;
 
 	/*
 	 * Clear charging configuration
@@ -3777,9 +3764,6 @@ skip_pps:
 		pca9468->timer_period = 0;
 	else if (pca9468->ta_type == TA_TYPE_WIRELESS)
 		pca9468->timer_period = PCA9468_PDMSG_WLC_WAIT_T;
-	else if ((pca9468->charging_state == DC_STATE_CV_MODE) ||
-		 (pca9468->charging_state == DC_STATE_START_CV))
-		pca9468->timer_period = PCA9468_CVMODE_CHECK_T;
 	else
 		pca9468->timer_period = PCA9468_PDMSG_WAIT_T;
 
@@ -4065,11 +4049,10 @@ static int pca9468_hw_init(struct pca9468_charger *pca9468)
 	if (ret < 0)
 		return ret;
 
-	/* max_v float voltage */
-	ret = pca9468_set_vfloat_reg(pca9468, pca9468->pdata->max_v_float_dt);
+	/* v float voltage */
+	ret = pca9468_set_vfloat(pca9468, pca9468->pdata->v_float);
 	if (ret < 0)
 		return ret;
-	pca9468->vfloat_reg = 0;
 
 	/* Spread Spectrum settings */
 	ret = regmap_update_bits(pca9468->regmap, PCA9468_REG_ADC_CTRL,
@@ -4298,10 +4281,17 @@ static int get_const_charge_current(struct pca9468_charger *pca9468)
 /* Return the constant charge voltage programmed into the charger in uV. */
 static int pca9468_const_charge_voltage(struct pca9468_charger *pca9468)
 {
+	unsigned int val;
+	int ret;
+
 	if (!pca9468->mains_online)
 		return -ENODATA;
 
-	return pca9468->vfloat_reg;
+	ret = regmap_read(pca9468->regmap, PCA9468_REG_V_FLOAT, &val);
+	if (ret < 0)
+		return ret;
+
+	return (val * 5 + 3725) * 1000;
 }
 
 /* index is the PPS source to use */
@@ -4754,14 +4744,15 @@ static int of_pca9468_dt(struct device *dev,
 		pdata->ta_max_vol_cp = pdata->ta_max_vol;
 	}
 
-	/* max charging float voltage */
-	ret = of_property_read_u32(np_pca9468, "pca9468,max-float-voltage",
-				   &pdata->max_v_float_dt);
+	/* charging float voltage */
+	ret = of_property_read_u32(np_pca9468, "pca9468,float-voltage",
+				   &pdata->v_float_dt);
 	if (ret) {
-		pr_warn("%s: pca9468,max-float-voltage is Empty\n", __func__);
-		pdata->max_v_float_dt = PCA9468_VFLOAT_DFT;
+		pr_warn("%s: pca9468,float-voltage is Empty\n", __func__);
+		pdata->v_float_dt = PCA9468_VFLOAT_DFT;
 	}
-	pr_info("%s: pca9468,max_v_float is %u\n", __func__, pdata->max_v_float_dt);
+	pdata->v_float = pdata->v_float_dt;
+	pr_info("%s: pca9468,v_float is %u\n", __func__, pdata->v_float);
 
 	/* input topoff current */
 	ret = of_property_read_u32(np_pca9468, "pca9468,input-itopoff",

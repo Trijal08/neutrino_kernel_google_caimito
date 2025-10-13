@@ -64,6 +64,8 @@ static void populate_cmd_v6_info_from_transaction(void *_cmd,
 	cmd->info.create_completion_fence_fd = k_transaction->info.create_completion_fence_fd;
 	cmd->info.create_completion_fence_signal_fd =
 		k_transaction->info.create_completion_fence_signal_fd;
+	cmd->info.num_io_entries = k_transaction->info.num_io_entries;
+	cmd->info.io_entries = (void *)k_transaction->info.io_entries;
 	cmd->info.run_in_event_context = k_transaction->info.run_in_event_context;
 	cmd->info.reserved = k_transaction->info.reserved;
 	cmd->info.emit_success_event_id = k_transaction->info.emit_success_event_id;
@@ -148,6 +150,8 @@ static void populate_cmd_v5_info_from_transaction(void *_cmd,
 	memcpy(&cmd->info.trigger_condition, &k_transaction->info.trigger_condition,
 	       sizeof(struct lwis_transaction_trigger_condition));
 	cmd->info.create_completion_fence_fd = k_transaction->info.create_completion_fence_fd;
+	cmd->info.num_io_entries = k_transaction->info.num_io_entries;
+	cmd->info.io_entries = (void *)k_transaction->info.io_entries;
 	cmd->info.run_in_event_context = k_transaction->info.run_in_event_context;
 	cmd->info.reserved = k_transaction->info.reserved;
 	cmd->info.emit_success_event_id = k_transaction->info.emit_success_event_id;
@@ -247,6 +251,8 @@ static void populate_cmd_v4_info_from_transaction(void *_cmd,
 
 	info_v4->trigger_event_id = info->trigger_event_id;
 	info_v4->trigger_event_counter = info->trigger_event_counter;
+	info_v4->num_io_entries = info->num_io_entries;
+	info_v4->io_entries = info->io_entries;
 	info_v4->run_in_event_context = info->run_in_event_context;
 	info_v4->reserved = info->reserved;
 	info_v4->emit_success_event_id = info->emit_success_event_id;

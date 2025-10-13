@@ -115,7 +115,7 @@ typedef unsigned __int64 uint64;
 #define TYPEDEF_ULONG
 #endif
 
-#if defined(__linux__) && defined(__KERNEL__) && !(defined(EFI) || defined(WL_UNITTEST))
+#if defined(__linux__) && !(defined(EFI) || defined(WL_UNITTEST))
 /*
  * If this is either a Linux hybrid build or the per-port code of a hybrid build
  * then use the Linux header files to get some of the typedefs.  Otherwise, define
@@ -195,6 +195,7 @@ typedef unsigned __int64 uint64;
 #define USE_TYPEDEF_DEFAULTS
 
 #endif /* SITE_TYPEDEFS */
+
 
 /*
  * Default Typedefs
@@ -322,6 +323,7 @@ typedef float64 float_t;
 #define	PTRSZ	sizeof(char*)
 #endif
 
+
 /* Detect compiler type. */
 #ifdef _MSC_VER
 	#define BWL_COMPILER_MICROSOFT
@@ -332,6 +334,7 @@ typedef float64 float_t;
 #else
 	#error "Unknown compiler!"
 #endif /* _MSC_VER */
+
 
 #ifndef INLINE
 #if defined(BWL_COMPILER_MICROSOFT)
@@ -345,12 +348,14 @@ typedef float64 float_t;
 #endif /* _MSC_VER */
 #endif /* INLINE */
 
+
 /* Force inlining. */
 #if defined(BWL_COMPILER_GNU)
 #define INLINE_ALWAYS	inline  __attribute__ ((always_inline))
 #else
 #define INLINE_ALWAYS	INLINE
 #endif
+
 
 #undef TYPEDEF_BOOL
 #undef TYPEDEF_UCHAR

@@ -36,8 +36,6 @@ enum gcip_status_code {
  * gcip_status_code_convert_from_errno - Converts errno to gcip_status_code.
  * @errno: The errno to be converted.
  *
- * The behavior of this function should align with absl::ErrnoToStatusCode.
- *
  * Return: The gcip_status_code corresponding to the errno.
  */
 enum gcip_status_code gcip_status_code_convert_from_errno(int errno);

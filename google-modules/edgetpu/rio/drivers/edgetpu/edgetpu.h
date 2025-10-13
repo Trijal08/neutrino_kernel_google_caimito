@@ -11,19 +11,13 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-/*
- * Legacy Platforms Only: mmap offsets for mailbox CSRs, command queue, and response queue.
- *
- * If a platform supports in-kernel VII, any attempt to mmap these offsets will fail with an errno
- * of EINVAL
- */
+/* mmap offsets for mailbox CSRs, command queue, and response queue */
 #define EDGETPU_MMAP_EXT_CSR_OFFSET 0x1500000
 #define EDGETPU_MMAP_EXT_CMD_QUEUE_OFFSET 0x1600000
 #define EDGETPU_MMAP_EXT_RESP_QUEUE_OFFSET 0x1700000
 #define EDGETPU_MMAP_CSR_OFFSET 0x1800000
 #define EDGETPU_MMAP_CMD_QUEUE_OFFSET 0x1900000
 #define EDGETPU_MMAP_RESP_QUEUE_OFFSET 0x1A00000
-
 /* mmap offsets for logging and tracing buffers */
 #define EDGETPU_MMAP_LOG_BUFFER_OFFSET 0x1B00000
 #define EDGETPU_MMAP_TRACE_BUFFER_OFFSET 0x1C00000
@@ -33,7 +27,12 @@
 #define EDGETPU_MMAP_TRACE2_BUFFER_OFFSET 0x2000000
 #define EDGETPU_MMAP_LOG3_BUFFER_OFFSET 0x2100000
 #define EDGETPU_MMAP_TRACE3_BUFFER_OFFSET 0x2200000
-#define EDGETPU_MMAP_HWTRACE_BUFFER_OFFSET 0x2300000
+
+/* Temporary for runtime not converted to above */
+#define EDGETPU_MMAP_DIVE_LOG_BUFFER_OFFSET 0x1F00000
+#define EDGETPU_MMAP_DIVE_TRACE_BUFFER_OFFSET 0x2000000
+#define EDGETPU_MMAP_DIVE_LOG1_BUFFER_OFFSET 0x2100000
+#define EDGETPU_MMAP_DIVE_TRACE1_BUFFER_OFFSET 0x2200000
 
 /* EdgeTPU map flag macros */
 
@@ -59,8 +58,6 @@ typedef __u32 edgetpu_map_flag_t;
 #define EDGETPU_MAP_ATTR_PBHA_MASK	0xf
 /* Create coherent mapping of the buffer */
 #define EDGETPU_MAP_COHERENT		(1u << 9)
-/* Map buffer "trimmable" on request from Pixel trim subsystem */
-#define EDGETPU_MAP_TRIMMABLE		(1u << 10)
 
 /* External mailbox types */
 #define EDGETPU_EXT_MAILBOX_TYPE_TZ		1
@@ -128,7 +125,7 @@ struct edgetpu_map_ioctl {
  * On success, @device_address is set, and TPU can access the content of
  * @host_address by @device_address afterwards.
  *
- * EINVAL: If the group is not in "ready (finalized)" state.
+ * EINVAL: If the group is not finalized.
  * EINVAL: If size equals 0.
  * EINVAL: (for EDGETPU_MAP_NONMIRRORED case) If @die_index exceeds the number
  *         of clients in the group.
@@ -209,7 +206,6 @@ struct edgetpu_mailbox_attr {
  * EINVAL: If @sizeof_cmd or @sizeof_resp equals 0.
  * EINVAL: If @cmd_queue_size * 1024 / @sizeof_cmd >= 1024, this is a hardware
  *         limitation. Same rule for the response sizes pair.
- * ETIMEDOUT: If the handshake with TPU firmware times out.
  */
 #define EDGETPU_CREATE_GROUP \
 	_IOW(EDGETPU_IOCTL_BASE, 6, struct edgetpu_mailbox_attr)
@@ -227,7 +223,6 @@ struct edgetpu_mailbox_attr {
 
 /*
  * Finalize the device group with the caller as the leader.
- * (No longer required for newer drivers, returns 0 if not implemented.)
  *
  * EINVAL: If the dies in this group are not allowed to form a device group.
  * ETIMEDOUT: If the handshake with TPU firmware times out.
@@ -241,7 +236,6 @@ struct edgetpu_mailbox_attr {
  */
 #define EDGETPU_PERDIE_EVENT_LOGS_AVAILABLE		0x1000
 #define EDGETPU_PERDIE_EVENT_TRACES_AVAILABLE		0x1001
-#define EDGETPU_PERDIE_EVENT_HWTRACES_AVAILABLE		0x1002
 
 /*
  * Set eventfd for notification of per-die events from kernel.
@@ -426,8 +420,9 @@ struct edgetpu_map_bulk_dmabuf_ioctl {
 	/*
 	 * The list of file descriptors backed by dma-buf.
 	 *
-	 * The first FD will be mapped to the first device in the target group;
-	 * the second FD will be mapped to the second device and so on.
+	 * The first FD will be mapped to the first device in the target group
+	 * (i.e. the master die); the second FD will be mapped to the second
+	 * device and so on.
 	 * Only the first N FDs will be used, where N is the number of devices
 	 * in the group.
 	 *
@@ -440,12 +435,12 @@ struct edgetpu_map_bulk_dmabuf_ioctl {
 };
 
 /*
- * Obsolete: Map a list of dma-buf FDs to devices in the group.
+ * Map a list of dma-buf FDs to devices in the group.
  *
  * On success, @device_address is set and the syscall returns zero.
  *
  * EINVAL: If @size is zero.
- * EINVAL: If the target device group is not in "ready (finalized)" state.
+ * EINVAL: If the target device group is not finalized.
  * EINVAL: If any file descriptor is not backed by dma-buf.
  * EINVAL: If @size exceeds the size of any buffer.
  * EINVAL: If all file descriptors are EDGETPU_IGNORE_FD.
@@ -453,7 +448,7 @@ struct edgetpu_map_bulk_dmabuf_ioctl {
 #define EDGETPU_MAP_BULK_DMABUF \
 	_IOWR(EDGETPU_IOCTL_BASE, 22, struct edgetpu_map_bulk_dmabuf_ioctl)
 /*
- * Obsolete: Un-map address previously mapped by EDGETPU_MAP_BULK_DMABUF.
+ * Un-map address previously mapped by EDGETPU_MAP_BULK_DMABUF.
  *
  * Only field @device_address in the third argument is used, other fields such
  * as @size will be fetched from the kernel's internal records.
@@ -874,28 +869,6 @@ struct edgetpu_vii_litebuf_response_ioctl {
 #define EDGETPU_GET_VII_CREDITS_PER_CLIENT _IOR(EDGETPU_IOCTL_BASE, 39, __u64)
 
 /*
- * A "limited" interface to the TPU driver is one which only supports a subset of the IOCTL
- * commands exposed by the driver. This allows mechanisms like access control to specify which
- * user-space clients can access the full driver, while still allowing other clients the minimum
- * set of IOCTLs to enable full functionality.
- *
- * The set of IOCTLs supported by the limited interface includes:
- * - EDGETPU_MAP_BUFFER
- * - EDGETPU_UNMAP_BUFFER
- *
- * To create a limited interface, a file descriptor must be obtained by calling open() on the
- * limited interface's device node (e.g. /dev/edgetpu-limited). The limited interface FD must then
- * be passed to the EDGETPU_ADD_LIMITED_INTERFACE IOCTL, called on an existing full interface FD.
- * Once the limited FD has been added to a client, any process with permission to call ioctl() on
- * the limited interface device can use the supported ioctls on the limited FD as if it were the
- * full FD it was linked to.
- *
- * Only one limited interface can be paired to any full interface, and the full interface must have
- * created a device group with EDGETPU_CREATE_GROUP before pairing.
- */
-#define EDGETPU_ADD_LIMITED_INTERFACE _IOWR(EDGETPU_IOCTL_BASE, 40, __s32)
-
-/*
  * DEPRECATED
  *
  * This constant, with the minimum value among all platforms, is present only for backwards
@@ -903,13 +876,5 @@ struct edgetpu_vii_litebuf_response_ioctl {
  * the maximum number of credits available on the device a client is running on.
  */
 #define EDGETPU_NUM_VII_CREDITS 8
-
-/*
- * Remap all buffers previously trimmed for this client.
- *
- * If a non-zero error code is returned then remapping failed unexpectedly, and the client still
- * cannot run the associated models until another call to remap buffers returns successfully.
- */
-#define EDGETPU_REMAP_BUFFERS	_IO(EDGETPU_IOCTL_BASE, 41)
 
 #endif /* __EDGETPU_H__ */

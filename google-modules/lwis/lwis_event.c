@@ -323,24 +323,6 @@ static int client_event_subscribe(struct lwis_client *lwis_client, int64_t trigg
 	return ret;
 }
 
-static void client_event_queue_clear_by_id(struct lwis_client *lwis_client, int64_t event_id)
-{
-	struct list_head *it_event, *it_tmp;
-	struct lwis_event_entry *event;
-	unsigned long flags;
-
-	spin_lock_irqsave(&lwis_client->event_lock, flags);
-	list_for_each_safe(it_event, it_tmp, &lwis_client->event_queue) {
-		event = list_entry(it_event, struct lwis_event_entry, node);
-		if (event->event_info.event_id == event_id) {
-			list_del(&event->node);
-			lwis_client->event_queue_size--;
-			kfree(event);
-		}
-	}
-	spin_unlock_irqrestore(&lwis_client->event_lock, flags);
-}
-
 static int client_event_unsubscribe(struct lwis_client *lwis_client, int64_t event_id)
 {
 	int ret = 0;
@@ -359,13 +341,6 @@ static int client_event_unsubscribe(struct lwis_client *lwis_client, int64_t eve
 	ret = top_dev->subscribe_ops.unsubscribe_event(lwis_dev->top_dev, event_id, lwis_dev->id);
 	if (ret < 0)
 		dev_err(lwis_dev->dev, "Failed to unsubscribe event: 0x%llx\n", event_id);
-
-	/*
-	 * Clear any pending events for this event ID from the queue. This is
-	 * done after unsubscribing to prevent a race where a new event could
-	 * be queued after clearing but before the unsubscription is complete.
-	 */
-	client_event_queue_clear_by_id(lwis_client, event_id);
 
 	/* Reset event counter */
 	event_state = lwis_device_event_state_find(lwis_dev, event_id);
@@ -407,10 +382,7 @@ int lwis_client_event_control_set(struct lwis_client *lwis_client,
 {
 	int ret = 0;
 	struct lwis_client_event_state *state;
-	uint64_t old_flags;
-	const uint64_t new_flags = control->flags;
-	unsigned long flags;
-
+	uint64_t old_flags, new_flags;
 	/* Find, or create, a client event state objcet for this event_id */
 	state = lwis_client_event_state_find_or_create(lwis_client, control->event_id);
 	if (IS_ERR_OR_NULL(state)) {
@@ -419,17 +391,15 @@ int lwis_client_event_control_set(struct lwis_client *lwis_client,
 		return -ENOMEM;
 	}
 
-	spin_lock_irqsave(&lwis_client->event_lock, flags);
 	old_flags = state->event_control.flags;
-	state->event_control.flags = new_flags;
-	spin_unlock_irqrestore(&lwis_client->event_lock, flags);
-
+	new_flags = control->flags;
 	if (old_flags != new_flags) {
 		ret = check_event_control_flags(lwis_client, control->event_id, old_flags,
 						new_flags);
 		if (ret)
 			return ret;
 
+		state->event_control.flags = new_flags;
 		ret = lwis_device_event_flags_updated(lwis_client->lwis_dev, control->event_id,
 						      old_flags, new_flags);
 		if (ret) {
@@ -688,16 +658,10 @@ int lwis_client_event_states_clear(struct lwis_client *lwis_client)
 	list_for_each_safe(it_event, it_tmp, &events_to_clear) {
 		state = list_entry(it_event, struct lwis_client_event_state, clearance_node);
 		list_del(&state->clearance_node);
-
-		if (EVENT_OWNER_DEVICE_ID(state->event_control.event_id) !=
-		    lwis_client->lwis_dev->id && state->event_control.flags) {
-			client_event_unsubscribe(lwis_client, state->event_control.event_id);
-		}
-
 		/* Update the device state with zero flags */
 		lwis_device_event_flags_updated(lwis_client->lwis_dev,
 						state->event_control.event_id,
-						state->event_control.flags, /*new_flags=*/0);
+						state->event_control.flags, 0);
 		/* Free the object */
 		kfree(state);
 	}

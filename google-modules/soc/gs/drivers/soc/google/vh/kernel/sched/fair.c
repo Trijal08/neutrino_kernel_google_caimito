@@ -2354,7 +2354,6 @@ void initialize_vendor_group_property(void)
 		vg[i].qos_rampup_multiplier_enable = false;
 
 		vg[i].disable_sched_setaffinity = false;
-		vg[i].disable_sched_setaffinity_mask = false;
 		vg[i].use_batch_policy = false;
 	}
 
@@ -2562,17 +2561,11 @@ void vh_sched_uclamp_validate_pixel_mod(void *data, struct task_struct *tsk,
 
 	if (attr->sched_util_max != AUTO_UCLAMP_MAX_MAGIC) {
 		vtsk->auto_uclamp_max_flags &= ~AUTO_UCLAMP_MAX_FLAG_TASK;
-		goto out;
+		return;
 	}
 
 	*done = true;
 	*ret = 0;
-
-out:
-	if (is_vcpu_task(tsk)) {
-		*done = true;
-		*ret = -EPERM;
-	}
 }
 
 void vh_sched_setscheduler_uclamp_pixel_mod(void *data, struct task_struct *tsk, int clamp_id,

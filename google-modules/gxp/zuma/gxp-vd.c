@@ -235,7 +235,6 @@ static int get_resources_from_imgcfg(struct gxp_dev *gxp, struct gcip_image_conf
  *  - Get CORE_CFG, VD_CFG, SYS_CFG's IOVAs and sizes from image config.
  *  - Map above regions with this layout:
  * Pool
- * For image comfig V2:
  *  +------------------------------------+
  *  |          SLICE_0: CORE_CFG         |
  *  |           SLICE_0: VD_CFG          |
@@ -252,21 +251,6 @@ static int get_resources_from_imgcfg(struct gxp_dev *gxp, struct gcip_image_conf
  *  |              SYS_CFG               |
  *  +------------------------------------+
  *
- * For image config v3
- *  +------------------------------------+
- *  |          SLICE_0: MCU_SHARED_CFG   |
- *  |              (CORE_CFG + VD_CFG)   |
- *  +------------------------------------+
- *  |          SLICE_1: MCU_SHARED_CFG   |
- *  |              (CORE_CFG + VD_CFG)   |
- *  +------------------------------------+
- *  |            ... SLICE_N             |
- *  +------------------------------------+
- *  |             <padding>              |
- *  +------------------------------------+
- *  |              SYS_CFG               |
- *  +------------------------------------+
- *
  * To keep compatibility, if not both mapping[0, 1] present then this function
  * falls back to map the MCU-core shared region with hard-coded IOVA and size.
  */
@@ -274,15 +258,12 @@ static int map_cfg_regions(struct gxp_virtual_device *vd, struct gcip_image_conf
 {
 	struct gxp_dev *gxp = vd->gxp;
 	struct gcip_memory pool;
-	struct gcip_memory core_cfg, vd_cfg, sys_cfg, mcu_shared_cfg;
+	struct gcip_memory core_cfg, vd_cfg, sys_cfg;
 	size_t offset;
 	int ret;
-	bool is_cfg_v2;
 
 	if (!img_cfg->num_iommu_mappings)
 		return map_core_shared_buffer(vd);
-
-	is_cfg_v2 = (img_cfg->config_version == 2);
 
 	ret = get_resources_from_imgcfg(gxp, img_cfg, &core_cfg, &vd_cfg, &sys_cfg);
 	if (ret)
@@ -292,57 +273,33 @@ static int map_cfg_regions(struct gxp_virtual_device *vd, struct gcip_image_conf
 	offset = vd->slice_index * GXP_SHARED_SLICE_SIZE;
 	core_cfg.virt_addr = pool.virt_addr + offset;
 	core_cfg.phys_addr = pool.phys_addr + offset;
+	ret = map_resource(vd, &core_cfg);
+	if (ret) {
+		dev_err(gxp->dev, "map core config %pad -> offset %#zx failed", &core_cfg.dma_addr,
+			offset);
+		return ret;
+	}
 	vd->core_cfg = core_cfg;
 
 	offset += vd->core_cfg.size;
 	vd_cfg.virt_addr = pool.virt_addr + offset;
 	vd_cfg.phys_addr = pool.phys_addr + offset;
-	vd->vd_cfg = vd_cfg;
-
-	if (is_cfg_v2) {
-		ret = map_resource(vd, &core_cfg);
-		if (ret) {
-			dev_err(gxp->dev, "map core config %pad -> 0x%llx failed",
-				&core_cfg.dma_addr, core_cfg.phys_addr);
-			return ret;
-		}
-		ret = map_resource(vd, &vd_cfg);
-		if (ret) {
-			dev_err(gxp->dev, "map VD config %pad -> 0x%llx failed", &vd_cfg.dma_addr,
-				vd_cfg.phys_addr);
-			goto err_unmap_core;
-		}
-		vd->mcu_shared_cfg.dma_addr = 0;
-	} else {
-		/* Core cfg and VD cfg contiguously part of MCU shared region. */
-		mcu_shared_cfg.dma_addr = core_cfg.dma_addr;
-		mcu_shared_cfg.phys_addr = core_cfg.phys_addr;
-		mcu_shared_cfg.size = core_cfg.size + vd_cfg.size;
-		ret = map_resource(vd, &mcu_shared_cfg);
-		if (ret) {
-			dev_err(gxp->dev, "map MCU shared config %pad -> 0x%llx failed",
-				&mcu_shared_cfg.dma_addr, mcu_shared_cfg.phys_addr);
-			return ret;
-		}
-		vd->mcu_shared_cfg = mcu_shared_cfg;
+	ret = map_resource(vd, &vd_cfg);
+	if (ret) {
+		dev_err(gxp->dev, "map VD config %pad -> offset %#zx failed", &vd_cfg.dma_addr,
+			offset);
+		goto err_unmap_core;
 	}
+	vd->vd_cfg = vd_cfg;
 
 	sys_cfg.virt_addr = gxp_fw_data_system_cfg(gxp);
 	offset = sys_cfg.virt_addr - pool.virt_addr;
 	sys_cfg.phys_addr = pool.phys_addr + offset;
 	ret = map_sys_cfg_resource(vd, &sys_cfg);
 	if (ret) {
-		dev_err(gxp->dev, "map sys config %pad -> 0x%llx failed", &sys_cfg.dma_addr,
-			sys_cfg.phys_addr);
-		if (is_cfg_v2) {
-			goto err_unmap_vd;
-		} else {
-			unmap_resource(vd, &mcu_shared_cfg);
-			vd->vd_cfg.dma_addr = 0;
-			vd->core_cfg.dma_addr = 0;
-			vd->mcu_shared_cfg.dma_addr = 0;
-			return ret;
-		}
+		dev_err(gxp->dev, "map sys config %pad -> offset %#zx failed", &sys_cfg.dma_addr,
+			offset);
+		goto err_unmap_vd;
 	}
 	vd->sys_cfg = sys_cfg;
 
@@ -363,12 +320,8 @@ static void unmap_cfg_regions(struct gxp_virtual_device *vd)
 		return unmap_core_shared_buffer(vd);
 
 	unmap_resource(vd, &vd->sys_cfg);
-	if (vd->mcu_shared_cfg.dma_addr) {
-		unmap_resource(vd, &vd->mcu_shared_cfg);
-	} else {
-		unmap_resource(vd, &vd->vd_cfg);
-		unmap_resource(vd, &vd->core_cfg);
-	}
+	unmap_resource(vd, &vd->vd_cfg);
+	unmap_resource(vd, &vd->core_cfg);
 }
 
 static int gxp_vd_imgcfg_map(void *data, dma_addr_t daddr, phys_addr_t paddr,

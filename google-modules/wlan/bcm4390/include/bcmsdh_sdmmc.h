@@ -43,7 +43,7 @@
 #define sd_sync_dma(sd, read, nbytes)
 #define sd_init_dma(sd)
 #define sd_ack_intr(sd)
-#define sd_wakeup(sd)
+#define sd_wakeup(sd);
 
 #ifdef BCMPERFSTATS
 #define sd_log(x)	do { if (sd_msglevel & SDH_LOG_VAL)	 bcmlog x; } while (0)
@@ -109,6 +109,7 @@ extern bool check_client_intr(sdioh_info_t *sd);
 /* Core interrupt enable/disable of device interrupts */
 extern void sdioh_sdmmc_devintr_on(sdioh_info_t *sd);
 extern void sdioh_sdmmc_devintr_off(sdioh_info_t *sd);
+
 
 /**************************************************************
  * Internal interfaces: bcmsdh_sdmmc.c references to per-port code

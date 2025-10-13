@@ -23,17 +23,7 @@
  * <<Broadcom-WL-IPTag/Dual:>>
  */
 
-#if defined(__linux__) && !defined(BCMDRIVER)
-/* for 'uint' */
-#define USE_TYPEDEF_DEFAULTS
-#endif
-
 #include <typedefs.h>
-
-#if defined(__linux__)
-/* Windows builds don't like this header due to conflicts. */
-#include <bcmstdlib_s.h>
-#endif /* __linux__ */
 
 #ifdef BCMDRIVER
 #include <osl.h>
@@ -41,9 +31,6 @@
 #undef tolower
 #define tolower(c) (bcm_isupper((c)) ? ((c) + 'a' - 'A') : (c))
 #else /* BCMDRIVER */
-#if defined(__linux__) && !defined(BCMFUZZ)
-#include <strings.h>
-#endif
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -52,7 +39,6 @@
 #define ASSERT(exp)
 #endif
 #endif /* BCMDRIVER */
-
 #include <bcmwifi_channels.h>
 
 #if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL) || defined(_CONSOLE))
@@ -896,6 +882,7 @@ static const uint8 wlcntver11t_to_wlcntvle10mcstt[WL_CNT_MCST_VAR_NUM] = {
 	IDX_IN_WL_CNT_VER_11_T(rxtoolate),
 	IDX_IN_WL_CNT_VER_11_T(bphy_badplcp)
 };
+
 
 /* Index conversion table from wl_cnt_ver_6_t to wl_cnt_v_le10_mcst_t */
 static const uint8 wlcntver6t_to_wlcntvle10mcstt[WL_CNT_MCST_VAR_NUM] = {

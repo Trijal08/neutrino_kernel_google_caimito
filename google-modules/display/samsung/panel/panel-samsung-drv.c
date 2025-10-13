@@ -1041,7 +1041,6 @@ int exynos_panel_disable(struct drm_panel *panel)
 	ctx->current_binned_lp = NULL;
 	ctx->cabc_mode = CABC_OFF;
 	ctx->ssc_en = false;
-	ctx->current_cabc_mode = CABC_OFF;
 
 	mutex_lock(&ctx->mode_lock);
 	_exynos_panel_disable_normal_feat_locked(ctx);
@@ -1296,26 +1295,6 @@ static const char *exynos_panel_get_state_str(enum exynos_panel_state state)
 	return state_str[state];
 }
 
-static void exynos_panel_set_cabc(struct exynos_panel *ctx, enum exynos_cabc_mode cabc_mode)
-{
-	const struct exynos_panel_funcs *funcs = ctx->desc->exynos_panel_func;
-	struct backlight_device *bl = ctx->bl;
-	u8 mode;
-	bool force_off = (bl->props.brightness <= ctx->desc->min_brightness);
-
-	if (!funcs || !funcs->set_cabc_mode)
-		return;
-
-	/* force off will not change the cabc_mode node */
-	mode = !force_off ? cabc_mode : CABC_OFF;
-	if (ctx->current_cabc_mode != mode) {
-		funcs->set_cabc_mode(ctx, mode);
-		ctx->current_cabc_mode = mode;
-	}
-	ctx->cabc_mode = cabc_mode;
-	dev_dbg(ctx->dev, "set cabc mode: %d, force_off: %d\n", cabc_mode, force_off);
-}
-
 static int exynos_update_status(struct backlight_device *bl)
 {
 	struct exynos_panel *ctx = bl_get_data(bl);
@@ -1366,10 +1345,6 @@ static int exynos_update_status(struct backlight_device *bl)
 		schedule_work(&ctx->notify_brightness_changed_work);
 		dev_dbg(ctx->dev, "bl range is changed to %d\n", bl_range);
 	}
-
-	if (ctx->cabc_mode && brightness)
-		exynos_panel_set_cabc(ctx, ctx->cabc_mode);
-
 	mutex_unlock(&ctx->mode_lock);
 	return 0;
 }
@@ -2579,6 +2554,20 @@ static void exynos_panel_set_dimming(struct exynos_panel *ctx, bool dimming_on)
 		funcs->set_dimming_on(ctx, dimming_on);
 		panel_update_idle_mode_locked(ctx, false);
 	}
+	mutex_unlock(&ctx->mode_lock);
+}
+
+static void exynos_panel_set_cabc(struct exynos_panel *ctx, enum exynos_cabc_mode cabc_mode)
+{
+	const struct exynos_panel_funcs *funcs = ctx->desc->exynos_panel_func;
+
+	if (!funcs || !funcs->set_cabc_mode)
+		return;
+
+	mutex_lock(&ctx->mode_lock);
+	if (cabc_mode != ctx->cabc_mode)
+		funcs->set_cabc_mode(ctx, cabc_mode);
+
 	mutex_unlock(&ctx->mode_lock);
 }
 

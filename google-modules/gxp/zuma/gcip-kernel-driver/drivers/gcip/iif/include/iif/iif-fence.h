@@ -135,7 +135,12 @@ struct iif_fence_poll_cb {
 	iif_fence_poll_cb_t func;
 };
 
-/* Contains the callback function which will be called when all signalers have been submitted. */
+/*
+ * Contains the callback function which will be called when all signalers have been submitted.
+ *
+ * The callback will be registered to the fence when the `iif_fence_submit_waiter` function fails
+ * in the submission.
+ */
 struct iif_fence_all_signaler_submitted_cb {
 	/* Node to be added to the list. */
 	struct list_head node;
@@ -449,6 +454,8 @@ int iif_fence_submit_signaler(struct iif_fence *fence);
 
 /*
  * Submits a waiter of @ip IP. @fence->outstanding_waiters will be incremented by 1.
+ * Note that the waiter submission will not be done when not all signalers have been submitted.
+ * (i.e., @fence->submitted_signalers < @fence->params.remaining_signalers)
  *
  * This function will acquire the block wakelock of @ip before it updates the IIF's wait table to
  * mark @ip is going to wait on @fence. Otherwise, if the signaler IPx processes its command even
@@ -458,7 +465,8 @@ int iif_fence_submit_signaler(struct iif_fence *fence);
  *
  * This function cannot be called in the IRQ context.
  *
- * Returns 0 on success. Otherwise, returns a negative errno.
+ * Returns the number of remaining signalers to be submitted (i.e., returning 0 means the submission
+ * actually succeeded). Otherwise, returns a negative errno if it fails with other reasons.
  */
 int iif_fence_submit_waiter(struct iif_fence *fence, enum iif_ip_type ip);
 
@@ -481,6 +489,9 @@ int iif_fence_add_sync_point(struct iif_fence *fence, u64 timeline, u64 count);
  * Submits a waiter of @waiter_ip to each fence in @in_fences and a signaler to each fence in
  * @out_fences. Either @in_fences or @out_fences is allowed to be NULL.
  *
+ * For the waiter submission, if at least one fence of @in_fences haven't finished the signaler
+ * submission, this function will fail and return -EAGAIN.
+ *
  * For the signaler submission, if at least one fence of @out_fences have already finished the
  * signaler submission, this function will fail and return -EPERM.
  *
@@ -492,10 +503,6 @@ int iif_fence_add_sync_point(struct iif_fence *fence, u64 timeline, u64 count);
  * Note that this function may reorder fences internally. This is to prevent a potential dead lock
  * which can be caused by holding the locks of multiple fences at the same time. Also, fences in
  * @in_fences and @out_fences should be unique. Otherwise, it will return -EDEADLK.
- *
- * For @in_fences or @out_fences, if the caller doesn't need to submit a waiter or signaler
- * accordingly, NULL pointer can be passed to them. If @in_fences is NULL which means the caller
- * is not going to submit a waiter, @waiter_ip can be any meaningless value.
  *
  * The function returns 0 on success.
  */

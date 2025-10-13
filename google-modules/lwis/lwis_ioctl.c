@@ -368,7 +368,7 @@ static int construct_io_entry(struct lwis_client *client, struct lwis_io_entry *
 		}
 	}
 
-	*io_entries = (struct lwis_io_entry __user *)k_entries;
+	*io_entries = k_entries;
 	return 0;
 
 error_free_buf:
@@ -1486,18 +1486,8 @@ static void populate_cmd_info_from_transaction(void *_cmd, struct lwis_transacti
 					       int error)
 {
 	struct lwis_cmd_transaction_info *cmd = _cmd;
-	struct lwis_io_entry *user_io_entries = cmd->info.io_entries;
-	size_t user_num_io_entries = cmd->info.num_io_entries;
 
 	cmd->info = k_transaction->info;
-
-	/*
-	 * Restore the original userspace pointers for io_entries to avoid
-	 * leaking the kernel-space pointer from k_transaction.
-	 */
-	cmd->info.io_entries = user_io_entries;
-	cmd->info.num_io_entries = user_num_io_entries;
-
 	if (error != 0)
 		cmd->info.id = LWIS_ID_INVALID;
 }
@@ -2124,7 +2114,6 @@ static int ioctl_handle_cmd_pkt(struct lwis_client *lwis_client,
 		if (lwis_dev->type != DEVICE_TYPE_TOP && device_disabled &&
 		    (header.cmd_id == LWIS_CMD_ID_DMA_BUFFER_ALLOC ||
 		     header.cmd_id == LWIS_CMD_ID_REG_IO ||
-		     header.cmd_id == LWIS_CMD_ID_REG_IO_V2 ||
 		     header.cmd_id == LWIS_CMD_ID_TRANSACTION_SUBMIT_V4 ||
 		     header.cmd_id == LWIS_CMD_ID_TRANSACTION_SUBMIT_V5 ||
 		     header.cmd_id == LWIS_CMD_ID_TRANSACTION_SUBMIT_V6 ||

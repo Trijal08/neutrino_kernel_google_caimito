@@ -74,7 +74,6 @@ struct gxp_soc_data;
 struct gxp_thermal_manager;
 struct gxp_usage_stats;
 struct gxp_power_states;
-struct gxp_devfreq;
 
 struct gxp_dev {
 	struct device *dev;		 /* platform bus device */
@@ -123,7 +122,7 @@ struct gxp_dev {
 	struct gxp_core_telemetry_manager *core_telemetry_mgr;
 	struct gcip_iommu_domain *default_domain;
 	struct gcip_thermal *thermal;
-	struct gxp_devfreq *devfreq;
+	struct gcip_devfreq *devfreq;
 	/* The accessor to register resources to the debugfs interface. */
 	struct gcip_resource_accessor *resource_accessor;
 	/*

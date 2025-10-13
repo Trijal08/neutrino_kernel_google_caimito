@@ -43,8 +43,7 @@ struct gxp_mcu {
 	struct gcip_mem_pool remap_secure_pool;
 	struct gxp_uci uci;
 	struct gxp_kci kci;
-	struct gcip_telemetry telemetry_log;
-	struct gcip_telemetry telemetry_trace;
+	struct gcip_telemetry_ctx telemetry;
 	/* To manage IIF fences. */
 	struct gxp_iif *giif;
 };
@@ -100,10 +99,5 @@ void gxp_mcu_set_boot_mode(struct gxp_mcu_firmware *mcu_fw, enum gxp_mcu_boot_mo
  * Set the MCU debug dump config region.
  */
 void gxp_mcu_set_debug_dump_config(struct gxp_mcu_firmware *mcu_fw, struct gcip_memory *mem);
-
-/*
- * Check if LPM init is required.
- */
-bool gxp_mcu_need_lpm_init(struct gxp_mcu_firmware *mcu_fw);
 
 #endif /* __GXP_MCU_H__ */

@@ -991,36 +991,6 @@ static ssize_t ifpmic_show(struct device *dev, struct device_attribute *attr, ch
 }
 static DEVICE_ATTR_RO(ifpmic);
 
-
-static ssize_t dvfs_ramp_enable_show(struct device *dev, struct device_attribute *attr,
-			      char *buf)
-{
-	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
-	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
-
-	return sysfs_emit(buf, "%d\n", bcl_dev->dvfs_ramp_enable);
-}
-
-static ssize_t dvfs_ramp_enable_store(struct device *dev,
-				      struct device_attribute *attr, const char *buf,
-				      size_t size)
-{
-	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
-	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
-	bool val;
-	int ret;
-
-	ret = kstrtobool(buf, &val);
-	if (ret)
-		return ret;
-
-	bcl_dev->dvfs_ramp_enable = val;
-
-	return size;
-}
-
-static DEVICE_ATTR_RW(dvfs_ramp_enable);
-
 static struct attribute *instr_attrs[] = {
 	&dev_attr_mid_db_settings.attr,
 	&dev_attr_big_db_settings.attr,
@@ -1048,7 +1018,6 @@ static struct attribute *instr_attrs[] = {
 #endif
 	&dev_attr_ready.attr,
 	&dev_attr_ifpmic.attr,
-	&dev_attr_dvfs_ramp_enable.attr,
 	NULL,
 };
 
@@ -2020,35 +1989,6 @@ static ssize_t uvlo2_rel_store(struct device *dev,
 
 static DEVICE_ATTR_RW(uvlo2_rel);
 
-static ssize_t dvfs_rel_show(struct device *dev, struct device_attribute *attr,
-			      char *buf)
-{	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
-	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
-
-	return sysfs_emit(buf, "%d\n", bcl_dev->dvfs_rel);
-}
-
-static ssize_t dvfs_rel_store(struct device *dev,
-			       struct device_attribute *attr, const char *buf,
-			       size_t size)
-{
-	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
-	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
-	unsigned int val;
-	int ret;
-
-	ret = kstrtou32(buf, 10, &val);
-	if (ret)
-		return ret;
-
-	bcl_dev->dvfs_rel = val > DVFS_RELEASE_TIME_MS_MAX ? DVFS_RELEASE_TIME_MS_MAX:
-		val;
-
-	return size;
-}
-
-static DEVICE_ATTR_RW(dvfs_rel);
-
 static ssize_t uvlo_det_read(struct device *dev, struct device_attribute *attr,
 			     char *buf, unsigned int uvlo_id)
 {
@@ -2071,7 +2011,6 @@ static ssize_t uvlo_det_read(struct device *dev, struct device_attribute *attr,
 static struct attribute *triggered_rel_attrs[] = {
 	&dev_attr_uvlo1_rel.attr,
 	&dev_attr_uvlo2_rel.attr,
-	&dev_attr_dvfs_rel.attr,
 	NULL,
 };
 
@@ -2212,7 +2151,6 @@ static const struct attribute_group triggered_det_group = {
 	.name = "triggered_det",
 };
 
-#if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 static ssize_t bat_ktimer_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
@@ -2220,9 +2158,9 @@ static ssize_t bat_ktimer_show(struct device *dev,
 		container_of(dev, struct platform_device, dev);
 	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
 
-	if (!bcl_dev->is_bat_ktimer_supported)
-		return -EINVAL;
-
+	if (!bcl_dev->bat_ktimer_en) {
+		return -EIO;
+	}
 	return sysfs_emit(buf, "%ums\n", bcl_dev->bat_ktimer);
 }
 
@@ -2236,23 +2174,13 @@ static ssize_t bat_ktimer_store(struct device *dev,
 	unsigned int value;
 	int ret;
 
-	if (!bcl_dev->is_bat_ktimer_supported)
-		return -EINVAL;
-
 	ret = kstrtou32(buf, 10, &value);
 	if (ret)
 		return ret;
 	if (value < BAT_KTIMER_LIMIT_MS)
 		return -EINVAL;
 
-	if (bcl_dev->bat_ktimer == value)
-		return size;
-
 	bcl_dev->bat_ktimer = value;
-
-	if (bcl_dev->bat_ktimer_en)
-		google_bcl_enable_timer(bcl_dev);
-
 	return size;
 }
 
@@ -2264,9 +2192,6 @@ static ssize_t bat_ktimer_enable_show(struct device *dev,
 	struct platform_device *pdev =
 		container_of(dev, struct platform_device, dev);
 	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
-
-	if (!bcl_dev->is_bat_ktimer_supported)
-		return -EINVAL;
 
 	return sysfs_emit(buf, "%d\n", bcl_dev->bat_ktimer_en);
 }
@@ -2281,23 +2206,11 @@ static ssize_t bat_ktimer_enable_store(struct device *dev,
 	bool value;
 	int ret;
 
-	if (!bcl_dev->is_bat_ktimer_supported)
-		return -EINVAL;
-
 	ret = kstrtobool(buf, &value);
 	if (ret)
 		return -EINVAL;
 
-	if (bcl_dev->bat_ktimer_en == value)
-		return size;
-
-	if (value)
-		google_bcl_enable_timer(bcl_dev);
-	else
-		google_bcl_disable_timer(bcl_dev);
-
 	bcl_dev->bat_ktimer_en = value;
-
 	return size;
 }
 
@@ -2313,7 +2226,6 @@ static const struct attribute_group ktimer_group = {
 	.attrs = ktimer_attrs,
 	.name = "batfet_kernel_timer",
 };
-#endif
 
 static ssize_t clk_div_show(struct bcl_device *bcl_dev, int idx, char *buf)
 {
@@ -4489,6 +4401,11 @@ static DEVICE_ATTR(smpl_triggered, 0444, smpl_triggered_show, NULL);
 void bunch_mitigation_threshold_addr(struct bcl_mitigation_conf *mitigation_conf,
 					unsigned int *addr[METER_CHANNEL_MAX]) {
 	int i;
+
+#if IS_ENABLED(CONFIG_REGULATOR_S2MPG12) || IS_ENABLED(CONFIG_REGULATOR_S2MPG10)
+	return;
+#endif
+
 	for (i = 0; i < METER_CHANNEL_MAX; i++)
 		addr[i] = &mitigation_conf[i].threshold;
 }
@@ -4496,6 +4413,11 @@ void bunch_mitigation_threshold_addr(struct bcl_mitigation_conf *mitigation_conf
 void bunch_mitigation_module_id_addr(struct bcl_mitigation_conf *mitigation_conf,
 					unsigned int *addr[METER_CHANNEL_MAX]) {
 	int i;
+
+#if IS_ENABLED(CONFIG_REGULATOR_S2MPG12) || IS_ENABLED(CONFIG_REGULATOR_S2MPG10)
+	return;
+#endif
+
 	for (i = 0; i < METER_CHANNEL_MAX; i++)
 		addr[i] = &mitigation_conf[i].module_id;
 }
@@ -4503,6 +4425,11 @@ void bunch_mitigation_module_id_addr(struct bcl_mitigation_conf *mitigation_conf
 static ssize_t mitigation_show(unsigned int *addr[METER_CHANNEL_MAX], char *buf)
 {
 	int i, at = 0;
+
+#if IS_ENABLED(CONFIG_REGULATOR_S2MPG12) || IS_ENABLED(CONFIG_REGULATOR_S2MPG10)
+	return -ENODEV;
+#endif
+
 	for (i = 0; i < METER_CHANNEL_MAX; i++)
 		at += sysfs_emit_at(buf, at, "%d,", *addr[i]);
 
@@ -4516,6 +4443,11 @@ static ssize_t mitigation_store(unsigned int *addr[METER_CHANNEL_MAX],
 	char * const str = kstrndup(buf, size, GFP_KERNEL);
 	char *sep_str = str;
 	char *token = NULL;
+
+#if IS_ENABLED(CONFIG_REGULATOR_S2MPG12) || IS_ENABLED(CONFIG_REGULATOR_S2MPG10)
+	goto mitigation_store_exit;
+#endif
+
 	if (!sep_str)
 		goto mitigation_store_exit;
 
@@ -4530,6 +4462,9 @@ static ssize_t mitigation_store(unsigned int *addr[METER_CHANNEL_MAX],
 mitigation_store_exit:
 	kfree(str);
 
+#if IS_ENABLED(CONFIG_REGULATOR_S2MPG12) || IS_ENABLED(CONFIG_REGULATOR_S2MPG10)
+	return -ENODEV;
+#endif
 	return size;
 }
 
@@ -4734,32 +4669,6 @@ static struct attribute *br_stats_attrs[] = {
 	NULL,
 };
 
-static ssize_t max_odpm_stats_dump_read(struct file *filp,
-				  struct kobject *kobj, struct bin_attribute *attr,
-				  char *buf, loff_t off, size_t count)
-{
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
-	struct bcl_device *bcl_dev = platform_get_drvdata(pdev);
-
-	ssize_t size = sizeof(struct max_odpm_stats);
-
-	if (off > size)
-		return 0;
-	if (count > size - off)
-		count = size - off;
-
-	memcpy(buf, (const void *)bcl_dev->max_odpm_stats + off, count);
-
-	return count;
-}
-
-static struct bin_attribute max_odpm_stats_dump_attr = {
-	.attr = { .name = "max_odpm_stats", .mode = 0444 },
-	.read = max_odpm_stats_dump_read,
-	.size = sizeof(struct max_odpm_stats),
-};
-
 static ssize_t br_stats_dump_read(struct file *filp,
 				  struct kobject *kobj, struct bin_attribute *attr,
 				  char *buf, loff_t off, size_t count)
@@ -4786,7 +4695,6 @@ static struct bin_attribute br_stats_dump_attr = {
 
 static struct bin_attribute *br_stats_bin_attrs[] = {
 	&br_stats_dump_attr,
-	&max_odpm_stats_dump_attr,
 	NULL,
 };
 
@@ -4846,7 +4754,6 @@ const struct attribute_group *mitigation_mw_groups[] = {
 	&br_stats_group,
 	&last_triggered_mode_group,
 	&triggered_state_mw_group,
-	&mitigation_group,
 	&irq_config_group,
 	NULL,
 };
@@ -4873,8 +4780,6 @@ const struct attribute_group *mitigation_sq_groups[] = {
 	&triggered_state_sq_group,
 	&mitigation_group,
 	&irq_config_group,
-#if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 	&ktimer_group,
-#endif
 	NULL,
 };

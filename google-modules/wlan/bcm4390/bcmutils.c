@@ -21,14 +21,6 @@
  * <<Broadcom-WL-IPTag/Dual:>>
  */
 
-// For strict C17 Posix 2008 target builds, enable bzero()
-#define _GNU_SOURCE 1
-
-#if defined(__linux__) && !defined(BCMDRIVER)
-// for 'uint'
-#define USE_TYPEDEF_DEFAULTS
-#endif
-
 #include <typedefs.h>
 #include <bcmdefs.h>
 
@@ -51,9 +43,6 @@
 
 #else /* !BCMDRIVER */
 
-#if defined(__linux__) && !defined(BCMFUZZ)
-#include <strings.h>
-#endif
 #include <stdio.h>
 #include <string.h>
 #include <bcmutils.h>
@@ -134,11 +123,6 @@ BCMRAMFN(privacy_addrmask_get)(void)
 }
 #endif /* PRIVACY_MASK */
 
-#if defined(PRIORITIZE_ARP)
-/* default value is set at NC/TID=7 */
-uint8 prio_arp = PRIO_8021D_NC;
-#endif
-
 #ifdef BCMDRIVER
 
 #ifndef BCM_ARM_BACKTRACE
@@ -166,6 +150,7 @@ const
 #endif
 char * getvar_internal(char *vars, const char *name);
 static int getintvar_internal(char *vars, const char *name);
+
 
 /*
  * Search the name=value vars for a specific one and return its value.
@@ -376,6 +361,7 @@ BCMATTACHFN(get_int16_vararray_slicespecific)(osl_t *osh, char *vars, char *vars
 		name, NULL, dest_array, dest_size);
 }
 
+
 /* Prepend a slice-specific accessor to an nvram string name.
  * Sets name_out to the allocated string. Returns the allocated size of the name string.
  * Caller is responsible for freeing the resulting name string with MFREE.
@@ -470,6 +456,7 @@ getgpiopin(char *vars, char *pin_name, uint def_pin)
 #endif /* BCMNVRAMR || BCMNVRAMW */
 #endif /* !BCMDONGLEHOST */
 
+
 /* return total length of buffer chain. In case of CSO, submsdu may have extra tsohdr and if
  * pktotlen should not include submsdu tso header, use the API pkttotlen_no_sfhtoe_hdr.
  */
@@ -547,7 +534,7 @@ BCMFASTPATH(pktsegcnt)(osl_t *osh, void *p)
 			cnt++;
 		}
 #ifdef BCMLFRAG
-		if (BCMLFRAG_ENAB() && PKTISTXFRAG(osh, p)) {
+		if (BCMLFRAG_ENAB() && PKTISFRAG(osh, p)) {
 				cnt += PKTFRAGTOTNUM(osh, p);
 		}
 #endif /* BCMLFRAG */
@@ -634,6 +621,7 @@ pktfrombuf(osl_t *osh, void *p, uint offset, uint len, uchar *buf)
 {
 	uint n, ret = 0;
 
+
 	/* skip 'offset' bytes */
 	for (; p && offset; p = PKTNEXT(osh, p)) {
 		if (offset < PKTLEN(osh, p))
@@ -700,6 +688,7 @@ BCMFASTPATH(pktdataoffset)(osl_t *osh, void *p,  uint offset)
 	return (uint8*) (pdata+pkt_off);
 }
 
+
 /* given a offset in pdata, find the pkt seg hdr */
 void *
 pktoffset(osl_t *osh, void *p,  uint offset)
@@ -756,7 +745,7 @@ struct bcm_sm_log_info {
  *
  * @return Returns the pointer to logger instance
  */
-bcm_sm_log_info_t *
+void *
 bcm_sm_logger_init(osl_t *osh, uint32 flags, uint32 num_entries, uint32 module_entry_sz)
 {
 	bcm_sm_log_info_t *bsli;
@@ -774,7 +763,7 @@ bcm_sm_logger_init(osl_t *osh, uint32 flags, uint32 num_entries, uint32 module_e
 
 		if (flags & BCM_SM_LOG_FLAG_EVENT_PRESENT) {
 			bsli->event = MALLOCZ(osh, (num_entries * sizeof(*bsli->state)));
-			if (!bsli->event) {
+			if (!bsli->state) {
 				goto fail;
 			}
 		}
@@ -798,23 +787,14 @@ bcm_sm_logger_init(osl_t *osh, uint32 flags, uint32 num_entries, uint32 module_e
 	return bsli;
 
 fail:
-	bcm_sm_logger_deinit(osh, bsli);
-	return NULL;
-}
-
-void
-bcm_sm_logger_deinit(osl_t *osh, bcm_sm_log_info_t *bsli)
-{
-	if (bsli == NULL) {
-		return;
-	}
-
-	MFREE(osh, bsli->state, (bsli->num_entries * sizeof(*bsli->state)));
-	MFREE(osh, bsli->event, (bsli->num_entries * sizeof(*bsli->event)));
-	MFREE(osh, bsli->call_site, (bsli->num_entries * sizeof(*bsli->call_site)));
-	MFREE(osh, bsli->time_stamp, (bsli->num_entries * sizeof(*bsli->time_stamp)));
-	MFREE(osh, bsli->data, (bsli->num_entries * bsli->module_entry_sz));
+	MFREE(osh, bsli->state, (num_entries * sizeof(*bsli->state)));
+	MFREE(osh, bsli->event, (num_entries * sizeof(*bsli->event)));
+	MFREE(osh, bsli->call_site, (num_entries * sizeof(*bsli->call_site)));
+	MFREE(osh, bsli->time_stamp, (num_entries * sizeof(*bsli->time_stamp)));
+	MFREE(osh, bsli->data, (num_entries * (num_entries * module_entry_sz)));
 	MFREE(osh, bsli, sizeof(*bsli));
+
+	return NULL;
 }
 
 /**
@@ -832,6 +812,10 @@ bcm_sm_log(bcm_sm_log_info_t *bsli, uint32 state, uint32 event, void *call_site)
 {
 	uint32 idx = bsli->idx;
 	void *data;
+
+	if (state > 255u) {
+		OSL_SYS_HALT();
+	}
 
 	bsli->state[idx] = (uint8) state;
 	bsli->call_site[idx] = call_site;
@@ -1004,6 +988,7 @@ bcmdumplog(char *buf, int size)
 	}
 
 }
+
 
 /*
  * Dump one log entry at a time.
@@ -1292,10 +1277,8 @@ BCMFASTPATH(pktsetprio)(void *pkt, bool update_vtag)
 		 * congested scenarios with traffic, ARP packets may not get chance
 		 * for transmission leading to disconnection. so prioritize it.
 		 */
-		if (prio_arp) {
-			priority = prio_arp;
-			rc = PKTPRIO_DSCP;
-		}
+		priority = PRIO_8021D_NC;
+		rc = PKTPRIO_DSCP;
 #endif /* PRIORITIZE_ARP */
 #if defined(WLTDLS)
 	} else if (eh->ether_type == hton16(ETHER_TYPE_89_0D)) {
@@ -1550,7 +1533,7 @@ const char *
 BCMRAMFN(bcmerrorstr)(int bcmerror)
 {
 	/* check if someone added a bcmerror code but forgot to add errorstring */
-	STATIC_ASSERT(ABS(BCME_LAST) == (ARRAYSIZE(bcmerrorstrtable) - 1));
+	ASSERT(ABS(BCME_LAST) == (ARRAYSIZE(bcmerrorstrtable) - 1));
 
 	if (bcmerror > 0 || bcmerror < BCME_LAST) {
 		snprintf(bcm_undeferrstr, sizeof(bcm_undeferrstr), "Undefined error %d", bcmerror);
@@ -1936,6 +1919,7 @@ bcm_iovar_lencheck(const bcm_iovar_t *vi, void *arg, uint len, bool set)
 #define MWBMAP_DBG(x)
 #endif  /* !BCM_MWBMAP_DEBUG */
 
+
 typedef struct bcm_mwbmap {     /* Hierarchical multiword bitmap allocator    */
 	uint16 wmaps;               /* Total number of words in free wd bitmap    */
 	uint16 imaps;               /* Total number of words in free id bitmap    */
@@ -1949,7 +1933,7 @@ typedef struct bcm_mwbmap {     /* Hierarchical multiword bitmap allocator    */
 	int8   wd_count[BCM_MWBMAP_WORDS_MAX];  /* free id running count, 1st lvl */
 #endif /*  ! BCM_MWBMAP_USE_CNTSETBITS */
 
-	uint32 id_bitmap[];        /* Second level bitmap */
+	uint32 id_bitmap[0];        /* Second level bitmap                        */
 } bcm_mwbmap_t;
 
 /* Incarnate a hierarchical multiword bitmap based small index allocator. */
@@ -2346,7 +2330,7 @@ typedef struct id16_map {
 	uint16  total;     /* total number of ids managed by allocator */
 	uint16  start;     /* start value of 16bit ids to be managed */
 	int     stack_idx; /* index into stack of available ids */
-	uint16  stack[];  /* stack of 16 bit ids */
+	uint16  stack[0];  /* stack of 16 bit ids */
 } id16_map_t;
 
 #define ID16_MAP_SZ(items)      (sizeof(id16_map_t) + \
@@ -2359,7 +2343,7 @@ typedef struct id16_map {
 
 typedef struct id16_map_dbg {
 	uint16  total;
-	bool    avail[];
+	bool    avail[0];
 } id16_map_dbg_t;
 #define ID16_MAP_DBG_SZ(items)  (sizeof(id16_map_dbg_t) + \
 				     (sizeof(bool) * (items)))
@@ -2534,6 +2518,7 @@ BCMFASTPATH(id16_map_alloc)(void * id16_map_hndl)
 	return val16;
 }
 
+
 void /* Free a 16bit id value into the id16 allocator */
 BCMFASTPATH(id16_map_free)(void * id16_map_hndl, uint16 val16)
 {
@@ -2663,6 +2648,7 @@ dll_pool_init(void * osh, uint16 elems_max, uint16 elem_size)
 	return dll_pool_p;
 }
 
+
 void *
 dll_pool_alloc(dll_pool_t * dll_pool_p)
 {
@@ -2687,6 +2673,7 @@ BCMPOSTTRAPFN(dll_pool_free)(dll_pool_t * dll_pool_p, void * elem_p)
 	dll_prepend(&dll_pool_p->free_list, node_p);
 	dll_pool_p->free_count += 1;
 }
+
 
 void
 dll_pool_free_tail(dll_pool_t * dll_pool_p, void * elem_p)
@@ -2718,6 +2705,7 @@ dll_pool_dump(dll_pool_t * dll_pool_p, dll_elem_dump elem_dump)
 #endif /* BCMDBG */
 
 #endif /* BCMDRIVER */
+
 
 #if defined(BCMDRIVER) || defined(WL_UNITTEST)
 
@@ -2907,6 +2895,7 @@ bcm_find_ie(const uint8* tlvs, uint tlvs_len, uint8 tag, uint8 oui_len,
 	return NULL;
 }
 
+
 #if defined(WLTINYDUMP) || defined(BCMDBG) || defined(WLMSG_INFORM) || \
 	defined(WLMSG_ASSOC) || defined(WLMSG_PRPKT) || defined(WLMSG_WSEC)
 #define SSID_FMT_BUF_LEN	((4 * DOT11_MAX_SSID_LEN) + 1)
@@ -2962,7 +2951,8 @@ bcm_find_vendor_ie(const  void *tlvs, uint tlvs_len, const char *voui, uint8 *ty
 		ie_len = ie->len;
 		if ((ie->id == DOT11_MNG_VS_ID) &&
 		    (ie_len >= (DOT11_OUI_LEN + type_len)) &&
-		    !memcmp(ie->data, voui, DOT11_OUI_LEN)) {
+		    !memcmp(ie->data, voui, DOT11_OUI_LEN))
+		{
 			/* compare optional type */
 			if (type_len == 0 ||
 			    !memcmp(((const char *)ie->data) + DOT11_OUI_LEN, type, type_len)) {
@@ -2994,7 +2984,8 @@ BCMRAMFN(bcm_addrmask_set)(int enable)
 			privacy->octet[3] = 0;
 		privacy->octet[0] = privacy->octet[5] = 0xff;
 		privacy->octet[4] = 0x0f;
-	} else {
+	} else
+	{
 		/* No masking. All are 0xff. */
 		eacopy(&ether_bcast, privacy);
 	}
@@ -3004,6 +2995,8 @@ BCMRAMFN(bcm_addrmask_set)(int enable)
 	BCM_REFERENCE(enable);
 	return BCME_UNSUPPORTED;
 #endif /* PRIVACY_MASK */
+
+
 }
 
 int
@@ -3048,10 +3041,11 @@ BCMRAMFN(bcm_ether_ntou64)(const struct ether_addr *ea)
 char *
 bcm_ether_ntoa(const struct ether_addr *ea, char *buf)
 {
-	static const char hex[] = {
-		'0', '1', '2', '3', '4', '5', '6', '7',
-		'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
-	};
+	static const char hex[] =
+	  {
+		  '0', '1', '2', '3', '4', '5', '6', '7',
+		  '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
+	  };
 	const uint8 *octet = ea->octet;
 	char *p = buf;
 	int i;
@@ -3317,6 +3311,7 @@ bcmstrncat(char *dest, const char *src, uint size)
 	return (dest);
 }
 
+
 /****************************************************************************
 * Function:   bcmstrtok
 *
@@ -3397,8 +3392,10 @@ bcmstrtok(char **string, const char *delimiters, char *tokdelim)
 	}
 }
 
+
 #define xToLower(C) \
 	((C >= 'A' && C <= 'Z') ? (char)((int)C - (int)'A' + (int)'a') : C)
+
 
 /****************************************************************************
 * Function:   bcmstricmp
@@ -3430,6 +3427,7 @@ bcmstricmp(const char *s1, const char *s2)
 	if (!*s1 && *s2) return -1;
 	return 0;
 }
+
 
 /****************************************************************************
 * Function:   bcmstrnicmp
@@ -4067,6 +4065,7 @@ bcm_write_tlv_ext(uint8 type, uint8 ext, const void *data, uint8 datalen, uint8 
 	return (new_dst);
 }
 
+
 uint8 *
 BCMPOSTTRAPFN(bcm_write_tlv_safe)(int type, const void *data, uint datalen, uint8 *dst,
 	uint dst_maxlen)
@@ -4104,6 +4103,7 @@ bcm_copy_tlv(const void *src, uint8 *dst)
 	return (new_dst);
 }
 
+
 uint8 *
 bcm_copy_tlv_safe(const void *src, uint8 *dst, uint dst_maxlen)
 {
@@ -4117,6 +4117,7 @@ bcm_copy_tlv_safe(const void *src, uint8 *dst, uint dst_maxlen)
 
 	return (new_dst);
 }
+
 
 #if !defined(BCMROMOFFLOAD_EXCLUDE_BCMUTILS_FUNCS)
 /*******************************************************************************
@@ -5058,10 +5059,8 @@ prhex(const char *msg, const uchar *buf, uint nbytes)
 	int nchar;
 	uint i;
 
-	if (msg && (msg[0] != '\0')) {
-		printf("%s (len=%u):\n", msg, nbytes);
+	if (msg && (msg[0] != '\0'))
 		printf("%s:\n", msg);
-	}
 
 	p = line;
 	for (i = 0; i < nbytes; i++) {
@@ -5325,6 +5324,7 @@ bcm_mw_to_qdbm(uint16 mw)
 
 	return (qdbm);
 }
+
 
 uint
 BCMPOSTTRAPFN(bcm_bitcount)(const uint8 *bitmap, uint length)
@@ -6135,6 +6135,7 @@ bcm_match_buffers(const uint8 *b1, uint b1_len, const uint8 *b2, uint b2_len)
 	return FALSE;
 }
 
+
 #ifdef PRIVACY_MASK
 /* applies privacy mask on the input address itself */
 void
@@ -6433,6 +6434,7 @@ BCMATTACHFN(varbuf_append)(varbuf_t *b, const char *fmt, ...)
 
 	return r;
 }
+
 
 #if defined(BCMDRIVER)
 /**

@@ -97,17 +97,14 @@ static void gxp_kci_inc_resp_queue_head(struct gcip_kci *kci, u32 inc)
 	gxp_mailbox_inc_resp_queue_head_nolock(mbx, inc, KCI_CIRCULAR_QUEUE_WRAP_BIT);
 }
 
-/* Handle one incoming request from firmware. */
-static void gxp_reverse_kci_handle_response(struct gcip_kci *kci,
-					    struct gcip_kci_response_element *resp)
+static void gxp_kci_handle_rkci(struct gxp_kci *gkci,
+				struct gcip_kci_response_element *resp)
 {
-	struct gxp_mailbox *mbx = gcip_kci_get_data(kci);
-	struct gxp_dev *gxp = mbx->gxp;
-	struct gxp_kci *gkci = mbx->data;
-	struct gxp_mcu_firmware *mcu_fw = gxp_mcu_firmware_of(gxp);
+	struct gxp_dev *gxp = gkci->gxp;
+	struct gxp_rkci_client_fatal_error_notify *client_fatal_error_notify;
 
 	switch (resp->code) {
-	case GCIP_RKCI_PM_QOS_BTS_REQUEST:
+	case GXP_RKCI_CODE_PM_QOS_BTS:
 		/* FW indicates to ignore the request by setting them to undefined values. */
 		if (resp->rkci_value2 != U32_MAX)
 			gxp_soc_pm_set_request(gxp, MEMORY_INT_QOS_REQ, resp->rkci_value2);
@@ -119,8 +116,7 @@ static void gxp_reverse_kci_handle_response(struct gcip_kci *kci,
 		gxp_soc_pm_set_request(gxp, COHERENT_FABRIC_QOS_REQ, resp->retval);
 		gxp_kci_resp_rkci_ack(gkci, resp);
 		break;
-	case GCIP_RKCI_TELEMETRY:
-	case GCIP_RKCI_TELEMETRY_LEGACY: {
+	case GXP_RKCI_CODE_CORE_TELEMETRY_READ: {
 		uint core;
 		uint core_list = (uint)(resp->rkci_value1);
 
@@ -132,7 +128,6 @@ static void gxp_reverse_kci_handle_response(struct gcip_kci *kci,
 		break;
 	}
 	case GCIP_RKCI_CLIENT_FATAL_ERROR_NOTIFY: {
-		struct gxp_rkci_client_fatal_error_notify *client_fatal_error_notify;
 		int client_id = (int)(resp->rkci_value2);
 		uint core_list = (uint)(resp->rkci_value1);
 
@@ -156,8 +151,29 @@ static void gxp_reverse_kci_handle_response(struct gcip_kci *kci,
 
 		break;
 	}
+	default:
+		dev_warn(gxp->dev, "Unrecognized reverse KCI request: %#x",
+			 resp->code);
+	}
+}
+
+/* Handle one incoming request from firmware. */
+static void
+gxp_reverse_kci_handle_response(struct gcip_kci *kci,
+				struct gcip_kci_response_element *resp)
+{
+	struct gxp_mailbox *mbx = gcip_kci_get_data(kci);
+	struct gxp_dev *gxp = mbx->gxp;
+	struct gxp_kci *gxp_kci = mbx->data;
+	struct gxp_mcu_firmware *mcu_fw = gxp_mcu_firmware_of(gxp);
+
+	if (resp->code <= GCIP_RKCI_CHIP_CODE_LAST) {
+		gxp_kci_handle_rkci(gxp_kci, resp);
+		return;
+	}
+
+	switch (resp->code) {
 	case GCIP_RKCI_FIRMWARE_CRASH:
-	case GCIP_RKCI_FIRMWARE_CRASH_LEGACY:
 		if (resp->retval == GCIP_FW_CRASH_UNRECOVERABLE_FAULT)
 			/* Fine to not push a new work if it's already in queue. */
 			schedule_work(&mcu_fw->fw_crash_handler_work);
@@ -165,7 +181,6 @@ static void gxp_reverse_kci_handle_response(struct gcip_kci *kci,
 			dev_warn(gxp->dev, "MCU non-fatal crash: %u", resp->retval);
 		break;
 	case GCIP_RKCI_JOB_LOCKUP:
-	case GCIP_RKCI_JOB_LOCKUP_LEGACY:
 		dev_dbg(gxp->dev, "Job lookup received from MCU firmware");
 		break;
 	default:
@@ -395,7 +410,6 @@ int gxp_kci_init(struct gxp_mcu *mcu)
 	struct gxp_kci *gkci = &mcu->kci;
 	struct gxp_mailbox_args mbx_args = {
 		.type = GXP_MBOX_TYPE_KCI,
-		.mode = GXP_MBOX_FULL_DUPLEX,
 		.ops = &mbx_ops,
 		.queue_wrap_bit = KCI_CIRCULAR_QUEUE_WRAP_BIT,
 		.cmd_elem_size = sizeof(struct gcip_kci_command_element),
@@ -742,9 +756,9 @@ out:
 	return ret;
 }
 
-int gxp_kci_fault_inject(struct gcip_fault_inject *injection)
+int gxp_kci_fault_injection(struct gcip_fault_inject *injection)
 {
-	return gxp_kci_send_cmd_with_data(injection->kci_data, GCIP_KCI_CODE_FAULT_INJECT,
+	return gxp_kci_send_cmd_with_data(injection->kci_data, GCIP_KCI_CODE_FAULT_INJECTION,
 					  injection->opaque, sizeof(injection->opaque));
 }
 
